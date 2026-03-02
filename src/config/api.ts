@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 
 const API_PORT = 3001;
 const DEFAULT_LAN_IP = process.env.EXPO_PUBLIC_LAN_IP?.trim() || '192.168.8.101';
+const RENDER_FALLBACK_ORIGIN = 'https://bluewhale-backend.onrender.com';
 
 const stripTrailingSlash = (v: string) => v.replace(/\/+$/, '');
 const toOrigin = (v: string) => stripTrailingSlash(v).replace(/\/api$/i, '');
@@ -21,7 +22,10 @@ const resolvedOrigin = (() => {
   if (Platform.OS === 'android') return androidEmulatorOrigin;
   if (Platform.OS === 'ios') return iosSimulatorOrigin;
 
-  // Physical-device fallback.
+  // Expo Go on physical device: prefer deployed API when env is missing.
+  if (Constants.appOwnership === 'expo') return RENDER_FALLBACK_ORIGIN;
+
+  // Physical-device local fallback.
   return physicalFallbackOrigin;
 })();
 
@@ -36,6 +40,7 @@ export const API_BASE_URL_CANDIDATES = Array.from(
       `${androidEmulatorOrigin}/api`,
       `${iosSimulatorOrigin}/api`,
       `${physicalFallbackOrigin}/api`,
+      `${RENDER_FALLBACK_ORIGIN}/api`,
       envOrigin ? `${envOrigin}/api` : '',
     ].filter(Boolean)
   )

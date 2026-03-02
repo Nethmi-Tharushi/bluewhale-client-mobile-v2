@@ -3,7 +3,6 @@ import { FlatList, Image, Pressable, RefreshControl, StyleSheet, Text, TextInput
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { JobsService } from '../../api/services';
 import { api } from '../../api/client';
 import { Card, EmptyState, Screen, Skeleton } from '../../components/ui';
@@ -34,7 +33,6 @@ const pick = (obj: any, keys: string[], fallback = '') => {
 export default function JobsListScreen({ navigation }: Props) {
   const t = useTheme();
   const user = useAuthStore((s) => s.user);
-  const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const [q, setQ] = useState('');
   const [jobs, setJobs] = useState<Job[]>([]);
@@ -156,7 +154,7 @@ export default function JobsListScreen({ navigation }: Props) {
   return (
     <Screen padded={false}>
       <FlatList
-        contentContainerStyle={[styles.content, { paddingTop: Math.max(10, insets.top + 6) }]}
+        contentContainerStyle={[styles.content, { paddingTop: 10 }]}
         data={filtered}
         keyExtractor={(item) => item._id}
         refreshControl={
