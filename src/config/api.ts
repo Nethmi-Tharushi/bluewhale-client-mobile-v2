@@ -1,0 +1,48 @@
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+
+const API_PORT = 3001;
+const DEFAULT_LAN_IP = process.env.EXPO_PUBLIC_LAN_IP?.trim() || '192.168.8.101';
+
+const stripTrailingSlash = (v: string) => v.replace(/\/+$/, '');
+const toOrigin = (v: string) => stripTrailingSlash(v).replace(/\/api$/i, '');
+
+const rawEnvUrl = process.env.EXPO_PUBLIC_API_URL?.trim() || '';
+const envOrigin = rawEnvUrl ? toOrigin(rawEnvUrl) : '';
+const androidEmulatorOrigin = `http://10.0.2.2:${API_PORT}`;
+const iosSimulatorOrigin = `http://localhost:${API_PORT}`;
+const physicalFallbackOrigin = `http://${DEFAULT_LAN_IP}:${API_PORT}`;
+
+const resolvedOrigin = (() => {
+  // Always honor explicit env override first.
+  if (envOrigin) return envOrigin;
+
+  // Emulator/simulator defaults when no env is provided.
+  if (Platform.OS === 'android') return androidEmulatorOrigin;
+  if (Platform.OS === 'ios') return iosSimulatorOrigin;
+
+  // Physical-device fallback.
+  return physicalFallbackOrigin;
+})();
+
+export const SOCKET_URL = resolvedOrigin;
+export const API_BASE_URL = `${resolvedOrigin}/api`;
+
+// Optional fallback origins for resilient retries in axios.
+export const API_BASE_URL_CANDIDATES = Array.from(
+  new Set(
+    [
+      API_BASE_URL,
+      `${androidEmulatorOrigin}/api`,
+      `${iosSimulatorOrigin}/api`,
+      `${physicalFallbackOrigin}/api`,
+      envOrigin ? `${envOrigin}/api` : '',
+    ].filter(Boolean)
+  )
+);
+
+if (__DEV__) {
+  console.log('[API Config] EXPO_PUBLIC_API_URL:', rawEnvUrl || '(not set)');
+  console.log('[API Config] API_BASE_URL:', API_BASE_URL);
+  console.log('[API Config] SOCKET_URL:', SOCKET_URL);
+}
