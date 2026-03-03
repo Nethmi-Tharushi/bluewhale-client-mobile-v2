@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Image, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import { Button, Card, Input, Screen } from '../../components/ui';
+import { Button, Input, Screen } from '../../components/ui';
 import { AuthService, UploadService } from '../../api/services';
 import { api } from '../../api/client';
 import { useAuthStore } from '../../context/authStore';
@@ -169,34 +169,42 @@ export default function ProfileScreen() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
-        <Card>
-          <Text style={[styles.h, { color: t.colors.primary }]}>Profile</Text>
-          <Text style={[styles.p, { color: t.colors.textMuted }]}>{loadingProfile ? 'Loading...' : 'Manage your account details'}</Text>
+      <ScrollView contentContainerStyle={styles.content}>
+        <View style={styles.hero}>
+          <View style={[styles.avatarWrap, { borderColor: '#C0CFEA', backgroundColor: '#F8FAFF' }]}>
+            {effectiveAvatarUrl && !avatarFailed ? (
+              <Image source={{ uri: effectiveAvatarUrl }} style={styles.avatarImage} onError={() => setAvatarFailed(true)} />
+            ) : (
+              <Feather name="user" size={38} color="#5E6F95" />
+            )}
+          </View>
+          <Text style={[styles.heroName, { color: t.colors.primary }]} numberOfLines={1}>
+            {name || user?.name || user?.fullName || 'Your Profile'}
+          </Text>
+          <Text style={styles.heroEmail} numberOfLines={1}>
+            {email || user?.email || 'user@example.com'}
+          </Text>
+          <Text style={styles.heroSub}>{loadingProfile ? 'Loading profile...' : 'Manage your account details'}</Text>
+        </View>
+
+        <View style={styles.section}>
+          <Text style={[styles.h, { color: t.colors.primary }]}>Personal Info</Text>
+          <Text style={styles.p}>Keep your details up to date</Text>
           <View style={{ height: 12 }} />
 
           <Text style={[styles.label, { color: t.colors.text }]}>Profile photo</Text>
           <View style={styles.photoRow}>
-            <View style={[styles.avatarWrap, { borderColor: t.colors.borderStrong, backgroundColor: t.colors.surface }]}>
-              {effectiveAvatarUrl && !avatarFailed ? (
-                <Image source={{ uri: effectiveAvatarUrl }} style={styles.avatarImage} onError={() => setAvatarFailed(true)} />
-              ) : (
-                <Feather name="user" size={34} color={t.colors.grayMutedDark} />
-              )}
-            </View>
-            <View style={styles.photoActions}>
-              <Button title={uploadingPhoto ? 'Uploading...' : 'Upload photo'} onPress={pickAndUploadPhoto} loading={uploadingPhoto} />
-              <View style={{ height: 8 }} />
-              <Button
-                title="Remove photo"
-                variant="outline"
-                onPress={() => {
-                  setAvatarUrl('');
-                  setAvatarFailed(false);
-                }}
-                disabled={!avatarUrl}
-              />
-            </View>
+            <Button title={uploadingPhoto ? 'Uploading...' : 'Upload photo'} onPress={pickAndUploadPhoto} loading={uploadingPhoto} />
+            <View style={{ width: 10 }} />
+            <Button
+              title="Remove photo"
+              variant="outline"
+              onPress={() => {
+                setAvatarUrl('');
+                setAvatarFailed(false);
+              }}
+              disabled={!avatarUrl}
+            />
           </View>
 
           <View style={{ height: 6 }} />
@@ -204,45 +212,70 @@ export default function ProfileScreen() {
           <Input label="Email" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" />
           <Input label="Phone" value={phone} onChangeText={setPhone} placeholder="07X XXX XXXX" keyboardType="phone-pad" />
           <Button title={saving ? 'Saving...' : 'Save changes'} onPress={save} loading={saving} />
-        </Card>
+        </View>
 
-        <View style={{ height: 12 }} />
-        <Card>
+        <View style={styles.section}>
           <Text style={[styles.h, { color: t.colors.primary }]}>Security</Text>
-          <Text style={[styles.p, { color: t.colors.textMuted }]}>Update password</Text>
+          <Text style={styles.p}>Update your password</Text>
           <View style={{ height: 12 }} />
           <Input label="Current password" value={currentPassword} onChangeText={setCurrentPassword} placeholder="Enter current password" secureTextEntry />
           <Input label="New password" value={newPassword} onChangeText={setNewPassword} placeholder="Minimum 6 characters" secureTextEntry />
           <Button title={changing ? 'Updating...' : 'Change password'} onPress={changePass} loading={changing} />
-        </Card>
+        </View>
 
-        <View style={{ height: 12 }} />
-        <Card>
+        <View style={styles.section}>
           <Text style={[styles.h, { color: t.colors.primary }]}>Account Actions</Text>
+          <Text style={styles.p}>Sign out or permanently remove account</Text>
           <View style={{ height: 12 }} />
           <Button title="Logout" onPress={() => signOut()} variant="secondary" />
           <View style={{ height: 10 }} />
           <Button title="Delete account" onPress={confirmDelete} variant="ghost" />
-        </Card>
+        </View>
       </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  h: { fontSize: 20, fontWeight: '900' },
-  p: { marginTop: 6, fontWeight: '700' },
+  content: { paddingBottom: 140, paddingTop: 10 },
+  hero: {
+    borderRadius: 24,
+    paddingHorizontal: 18,
+    paddingVertical: 18,
+    borderWidth: 1.5,
+    borderColor: '#C4D1E8',
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  heroName: { marginTop: 12, fontSize: 26, fontWeight: '900' },
+  heroEmail: { marginTop: 6, fontSize: 16, fontWeight: '700', color: '#5B6E95' },
+  heroSub: { marginTop: 6, fontSize: 14, fontWeight: '700', color: '#7384A8' },
+  section: {
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#C4D1E8',
+    backgroundColor: 'rgba(255,255,255,0.76)',
+    marginBottom: 12,
+    shadowColor: '#3E5D9F',
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 4,
+  },
+  h: { fontSize: 22, fontWeight: '900' },
+  p: { marginTop: 6, fontWeight: '700', color: '#6B7FA8' },
   label: { fontWeight: '800', marginBottom: 8 },
   photoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
   avatarWrap: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
-    borderWidth: 1,
+    width: 102,
+    height: 102,
+    borderRadius: 51,
+    borderWidth: 1.5,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   avatarImage: { width: '100%', height: '100%' },
-  photoActions: { flex: 1, marginLeft: 14 },
 });

@@ -20,20 +20,20 @@ export default function UIButton({
 }) {
   const t = useTheme();
   const isDisabled = disabled || loading;
-  const textColor = variant === 'primary' || variant === 'secondary' ? t.colors.textOnPrimary : t.colors.primary;
+  const textColor = variant === 'primary' ? t.colors.textOnPrimary : variant === 'secondary' ? '#118D4C' : '#2A78CC';
 
   if (variant === 'primary') {
     return (
-      <Pressable onPress={onPress} disabled={isDisabled} style={({ pressed }) => [pressed && { opacity: 0.9 }, isDisabled && styles.disabled]}>
-        <LinearGradient colors={t.colors.gradientButton as any} style={[styles.base, { borderRadius: t.radius.md }]}>
+      <Pressable onPress={onPress} disabled={isDisabled} style={({ pressed }) => [pressed && { opacity: 0.92 }, isDisabled && styles.disabled]}>
+        <LinearGradient colors={['#233E9B', '#168EE5']} start={{ x: 0, y: 0.4 }} end={{ x: 1, y: 1 }} style={styles.primaryBase}>
           <View style={styles.row}>{loading ? <ActivityIndicator color={t.colors.textOnPrimary} /> : <Text style={[styles.text, { color: textColor }]}>{title}</Text>}</View>
         </LinearGradient>
       </Pressable>
     );
   }
 
-  const backgroundColor = variant === 'secondary' ? t.colors.secondary : variant === 'ghost' ? 'transparent' : t.colors.surface;
-  const borderColor = variant === 'ghost' ? 'transparent' : t.colors.borderStrong;
+  const backgroundColor = variant === 'secondary' ? '#CFEEDA' : variant === 'ghost' ? 'transparent' : '#F8FBFF';
+  const borderColor = variant === 'secondary' ? '#34C16C' : variant === 'ghost' ? 'transparent' : '#5AA0E8';
 
   return (
     <Pressable
@@ -41,23 +41,35 @@ export default function UIButton({
       disabled={isDisabled}
       style={({ pressed }) => [
         styles.base,
-        { borderRadius: t.radius.md, backgroundColor, borderColor, borderWidth: 1 },
-        pressed && { opacity: 0.9 },
+        { backgroundColor, borderColor, borderWidth: variant === 'ghost' ? 0 : 1 },
+        pressed && { opacity: 0.92 },
         isDisabled && styles.disabled,
       ]}
     >
-      <View style={styles.row}>{loading ? <ActivityIndicator color={textColor} /> : <Text style={[styles.text, { color: variant === 'secondary' ? t.colors.textOnPrimary : textColor }]}>{title}</Text>}</View>
+      <View style={styles.row}>{loading ? <ActivityIndicator color={textColor} /> : <Text style={[styles.text, { color: textColor }]}>{title}</Text>}</View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   base: {
-    minHeight: 48,
-    paddingHorizontal: 16,
+    minHeight: 56,
+    borderRadius: 20,
+    paddingHorizontal: 20,
     justifyContent: 'center',
   },
+  primaryBase: {
+    minHeight: 56,
+    borderRadius: 20,
+    paddingHorizontal: 20,
+    justifyContent: 'center',
+    shadowColor: '#1F4B9F',
+    shadowOpacity: 0.22,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 5 },
+    elevation: 5,
+  },
   row: { alignItems: 'center', justifyContent: 'center', flexDirection: 'row' },
-  text: { fontSize: 15, fontWeight: '800' },
+  text: { fontSize: 17, fontWeight: '800' },
   disabled: { opacity: 0.55 },
 });

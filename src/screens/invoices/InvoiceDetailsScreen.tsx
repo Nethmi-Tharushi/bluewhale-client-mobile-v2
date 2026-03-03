@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { Alert, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import * as FileSystem from 'expo-file-system/legacy';
-import { Badge, Button, Card, Screen } from '../../components/ui';
-import { Spacing } from '../../constants/theme';
+import * as FileSystem from 'expo-file-system';
+import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { InvoicesService } from '../../api/services';
 import { getToken } from '../../utils/tokenStorage';
 import { useAuthStore } from '../../context/authStore';
@@ -33,48 +34,14 @@ const openLocalFile = async (fileUri: string) => {
   }
 };
 
-const isProtectedApiPdfUrl = (url: string) => {
-  const v = String(url || '').trim().toLowerCase();
-  return v.includes('/api/users/invoices/') || v.includes('/api/invoices/');
-};
-
-const getProofSnapshot = (invoice: any) => {
-  if (!invoice || typeof invoice !== 'object') {
-    return { hasProof: false, reference: '', notes: '' };
-  }
-
-  const directReference = String(
-    invoice?.reference || invoice?.paymentReference || invoice?.referenceNo || invoice?.latestProof?.reference || ''
-  ).trim();
-  const directNotes = String(invoice?.notes || invoice?.latestProof?.notes || '').trim();
-
-  const payments = Array.isArray(invoice?.payments) ? invoice.payments : [];
-  const latestPayment = payments.length ? payments[payments.length - 1] : null;
-  const paymentReference = String(
-    latestPayment?.reference || latestPayment?.paymentReference || latestPayment?.referenceNo || ''
-  ).trim();
-  const paymentNotes = String(latestPayment?.notes || '').trim();
-  const paymentProofUrl = String(
-    latestPayment?.proofUrl || latestPayment?.paymentSlipUrl || latestPayment?.slipUrl || ''
-  ).trim();
-
-  const directProofUrl = String(invoice?.proofUrl || invoice?.paymentSlipUrl || invoice?.slipUrl || invoice?.latestProof?.proofUrl || '').trim();
-
-  const reference = directReference || paymentReference;
-  const notes = directNotes || paymentNotes;
-  const hasProof = !!(invoice?.hasPaymentProof || reference || notes || paymentProofUrl || directProofUrl || invoice?.latestProof);
-
-  return { hasProof, reference, notes };
-};
-
 type Props = NativeStackScreenProps<InvoicesStackParamList, 'InvoiceDetails'>;
 
 export default function InvoiceDetailsScreen({ navigation, route }: Props) {
   const t = useTheme();
+  const insets = useSafeAreaInsets();
   const { invoiceId, invoice: initialInvoice } = route.params;
   const [inv, setInv] = useState<Invoice | null>(initialInvoice || null);
   const [loading, setLoading] = useState(true);
-  const proofSnapshot = getProofSnapshot(inv);
 
   useEffect(() => {
     (async () => {
@@ -111,51 +78,33 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
 
   const openPdf = async () => {
     try {
-      const token = (await getToken()) || useAuthStore.getState().token;
-      if (!token) throw new Error('Session expired. Please log out and log in again.');
-
-      const downloadAuthenticatedPdf = async (targetUrl: string) => {
-        const pdfUrl = toAbsoluteHttpUrl(targetUrl);
-        const targetPath = `${(FileSystem as any).cacheDirectory || ''}invoice-${invoiceId}.pdf`;
-        const result = await FileSystem.downloadAsync(pdfUrl, targetPath, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (result.status < 200 || result.status >= 300) {
-          throw new Error(`PDF download failed (HTTP ${result.status})`);
-        }
-        await openLocalFile(result.uri);
-      };
-
       const localPdfUrl =
         (inv as any)?.pdfUrl || (inv as any)?.pdfURL || (inv as any)?.pdf || (inv as any)?.documentUrl || (inv as any)?.documentURL;
       if (localPdfUrl) {
-        if (isProtectedApiPdfUrl(String(localPdfUrl))) {
-          await downloadAuthenticatedPdf(String(localPdfUrl));
-        } else {
-          await openExternalUrl(String(localPdfUrl));
-        }
+        await openExternalUrl(String(localPdfUrl));
         return;
       }
       const res = await InvoicesService.getPdfUrl(invoiceId).catch(() => null);
       const url = (res as any)?.url || (res as any)?.pdfUrl || (res as any)?.link;
       if (url) {
-        if (isProtectedApiPdfUrl(String(url))) {
-          await downloadAuthenticatedPdf(String(url));
-        } else {
-          await openExternalUrl(String(url));
-        }
+        await openExternalUrl(String(url));
         return;
       }
 
+      const token = (await getToken()) || useAuthStore.getState().token;
+      if (!token) throw new Error('Session expired. Please log out and log in again.');
       const endpoints = [`/users/invoices/${invoiceId}/pdf`, `/invoices/${invoiceId}/pdf`];
       let downloaded = false;
       for (const endpoint of endpoints) {
-        try {
-          await downloadAuthenticatedPdf(endpoint);
+        const pdfUrl = toAbsoluteHttpUrl(endpoint);
+        const targetPath = `${(FileSystem as any).cacheDirectory || ''}invoice-${invoiceId}.pdf`;
+        const result = await FileSystem.downloadAsync(pdfUrl, targetPath, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (result.status >= 200 && result.status < 300) {
+          await openLocalFile(result.uri);
           downloaded = true;
           break;
-        } catch {
-          // Try next endpoint variant.
         }
       }
       if (!downloaded) throw new Error('PDF endpoint requires authenticated access and did not return a downloadable file.');
@@ -164,64 +113,276 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
     }
   };
 
+  const onBack = () => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.getParent()?.navigate('Bills' as never);
+  };
+
+  const invoiceTitle = inv?.invoiceNumber ? `Invoice #${inv.invoiceNumber}` : loading ? 'Loading...' : 'Invoice';
+  const dueText = `Due ${formatDate(inv?.dueDate) || '-'}`;
+  const totalText = money(inv?.total, inv?.currency || 'USD');
+  const statusText = String(inv?.status || (loading ? 'Loading...' : 'Sent'));
+  const itemCount = Array.isArray(inv?.items) ? inv!.items!.length : 0;
+
   return (
-    <Screen>
-      <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
-        <Card>
-          <Text style={[styles.title, { color: t.colors.primary }]}>{inv?.invoiceNumber ? `Invoice #${inv.invoiceNumber}` : 'Invoice'}</Text>
-          <Text style={[styles.meta, { color: t.colors.textMuted }]}>Due {formatDate(inv?.dueDate) || '-'}</Text>
-          <View style={{ height: 10 }} />
-          <Badge text={inv?.status || (loading ? 'Loading...' : 'Unknown')} />
-
-          <View style={{ height: 14 }} />
-          <Text style={[styles.h, { color: t.colors.primary }]}>Items</Text>
-          {(inv?.items || []).length ? (
-            (inv?.items || []).map((it, idx) => (
-              <View key={idx} style={[styles.row, { borderBottomColor: t.isDark ? 'rgba(67,198,255,0.2)' : 'rgba(15,121,197,0.16)' }]}>
-                <Text style={[styles.itemName, { color: t.colors.text }]}>{it.name || `Item ${idx + 1}`}</Text>
-                <Text style={[styles.itemPrice, { color: t.colors.text }]}>{money((it.total ?? (it.qty || 1) * (it.unitPrice || 0)) as any, inv?.currency || 'LKR')}</Text>
+    <LinearGradient colors={t.colors.gradientBackground as any} style={styles.root}>
+      <SafeAreaView style={styles.safe}>
+        <ScrollView contentContainerStyle={[styles.content, { paddingTop: Math.max(8, insets.top + 4), paddingBottom: 150 }]}>
+          <View style={styles.headerWrap}>
+            <View style={styles.headerTopRow}>
+              <Pressable onPress={onBack} style={styles.backBtn}>
+                <Feather name="arrow-left" size={34} color="#1A347F" />
+              </Pressable>
+              <Text style={[styles.heading, { fontFamily: t.typography.fontFamily.bold }]}>Invoice Details</Text>
+              <View style={styles.bellWrap}>
+                <Feather name="bell" size={30} color="#455B87" />
+                <View style={styles.bellDot} />
               </View>
-            ))
-          ) : (
-            <Text style={[styles.p, { color: t.colors.textMuted }]}>No item breakdown available.</Text>
-          )}
-
-          <View style={{ height: 14 }} />
-          <View style={styles.totalRow}>
-            <Text style={[styles.totalLabel, { color: t.colors.primary }]}>Total</Text>
-            <Text style={[styles.totalValue, { color: t.colors.text }]}>{money(inv?.total, inv?.currency || 'LKR')}</Text>
+            </View>
           </View>
 
-          <View style={{ height: 16 }} />
-          <Button title="View / Download PDF" onPress={openPdf} />
-          <View style={{ height: 10 }} />
-          <Button
-            title={proofSnapshot.hasProof ? 'Edit proof' : 'Pay / Submit proof'}
-            variant="secondary"
-            onPress={() =>
-              navigation.navigate('Payment', {
-                invoiceId,
-                hasProof: proofSnapshot.hasProof,
-                existingReference: proofSnapshot.reference || undefined,
-                existingNotes: proofSnapshot.notes || undefined,
-              })
-            }
-          />
-        </Card>
-      </ScrollView>
-    </Screen>
+          <View style={styles.card}>
+            <Text style={[styles.invoiceTitle, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
+              {invoiceTitle}
+            </Text>
+            <Text style={[styles.invoiceDue, { fontFamily: t.typography.fontFamily.medium }]}>{dueText}</Text>
+
+            <View style={styles.mainInfoRow}>
+              <View style={styles.docIconWrap}>
+                <Feather name="file-text" size={38} color="#5EA1E4" />
+              </View>
+
+              <View style={{ flex: 1 }}>
+                <View style={styles.statusRow}>
+                  <View />
+                  <View style={styles.statusPill}>
+                    <Text style={[styles.statusText, { fontFamily: t.typography.fontFamily.bold }]}>{statusText}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.mainDivider} />
+                <View style={styles.totalRowTop}>
+                  <Text style={[styles.totalLabel, { fontFamily: t.typography.fontFamily.bold }]}>Total</Text>
+                  <Text style={[styles.totalValue, { fontFamily: t.typography.fontFamily.bold }]}>{totalText}</Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.mainDividerStrong} />
+            <View style={styles.detailsGrid}>
+              <View style={styles.detailCell}>
+                <Text style={[styles.detailLabel, { fontFamily: t.typography.fontFamily.medium }]}>Invoice No</Text>
+                <Text style={[styles.detailValue, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
+                  {inv?.invoiceNumber || '-'}
+                </Text>
+              </View>
+              <View style={styles.detailCell}>
+                <Text style={[styles.detailLabel, { fontFamily: t.typography.fontFamily.medium }]}>Status</Text>
+                <Text style={[styles.detailValue, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
+                  {statusText}
+                </Text>
+              </View>
+              <View style={styles.detailCell}>
+                <Text style={[styles.detailLabel, { fontFamily: t.typography.fontFamily.medium }]}>Currency</Text>
+                <Text style={[styles.detailValue, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
+                  {inv?.currency || 'USD'}
+                </Text>
+              </View>
+              <View style={styles.detailCell}>
+                <Text style={[styles.detailLabel, { fontFamily: t.typography.fontFamily.medium }]}>Items</Text>
+                <Text style={[styles.detailValue, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
+                  {String(itemCount)}
+                </Text>
+              </View>
+            </View>
+
+            <Pressable onPress={openPdf} style={{ marginTop: 12 }}>
+              <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.actionBtn}>
+                <Feather name="file-plus" size={18} color="#FFFFFF" />
+                <Text style={[styles.actionBtnText, { fontFamily: t.typography.fontFamily.bold }]}>View / Download PDF</Text>
+              </LinearGradient>
+            </Pressable>
+
+            <Pressable onPress={() => navigation.navigate('Payment', { invoiceId })} style={{ marginTop: 10 }}>
+              <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.actionBtn}>
+                <Text style={[styles.actionBtnText, { fontFamily: t.typography.fontFamily.bold }]}>Pay / Submit proof</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
+    </LinearGradient>
   );
 }
 
 const styles = StyleSheet.create({
-  title: { fontSize: 22, fontWeight: '900' },
-  meta: { marginTop: 6, fontWeight: '700' },
-  h: { fontWeight: '900', marginBottom: 8, fontSize: 16 },
-  p: { fontWeight: '700' },
-  row: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: 'rgba(15,121,197,0.16)' },
-  itemName: { flex: 1, marginRight: 12, fontWeight: '700' },
-  itemPrice: { fontWeight: '900' },
-  totalRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
-  totalLabel: { fontWeight: '900', fontSize: 17 },
-  totalValue: { fontWeight: '900', fontSize: 17 },
+  root: { flex: 1 },
+  safe: { flex: 1 },
+  content: {
+    paddingHorizontal: 16,
+  },
+  headerWrap: {
+    marginBottom: 14,
+  },
+  headerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  backBtn: {
+    width: 52,
+    alignItems: 'flex-start',
+  },
+  heading: {
+    flex: 1,
+    color: '#1A347F',
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: '900',
+  },
+  bellWrap: {
+    width: 52,
+    height: 52,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bellDot: {
+    position: 'absolute',
+    top: 8,
+    right: 7,
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    backgroundColor: '#FF8085',
+  },
+  card: {
+    marginBottom: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#D8E3F7',
+    borderRadius: 30,
+    padding: 16,
+    shadowColor: '#6E89BB',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 5,
+  },
+  invoiceTitle: {
+    color: '#1A347F',
+    fontSize: 19,
+    lineHeight: 24,
+    fontWeight: '900',
+  },
+  invoiceDue: {
+    marginTop: 4,
+    color: '#59688D',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '600',
+  },
+  mainInfoRow: {
+    flexDirection: 'row',
+    marginTop: 12,
+  },
+  docIconWrap: {
+    width: 90,
+    height: 90,
+    borderRadius: 20,
+    backgroundColor: '#EAF2FF',
+    borderWidth: 1,
+    borderColor: '#D6E3F8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  statusRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  statusPill: {
+    borderRadius: 999,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderWidth: 1.5,
+    borderColor: '#F1C37A',
+    backgroundColor: '#F9EED7',
+    alignSelf: 'flex-end',
+  },
+  statusText: {
+    color: '#D47A09',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  mainDivider: {
+    height: 1,
+    backgroundColor: '#D7E2F5',
+  },
+  totalRowTop: {
+    marginTop: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  totalLabel: {
+    color: '#4E5D81',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '900',
+  },
+  totalValue: {
+    color: '#18243F',
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: '900',
+  },
+  mainDividerStrong: {
+    marginTop: 10,
+    height: 1,
+    backgroundColor: '#D7E2F5',
+  },
+  detailsGrid: {
+    marginTop: 10,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  detailCell: {
+    width: '48%',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#D3E0F6',
+    backgroundColor: '#EEF4FE',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  detailLabel: {
+    color: '#637792',
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: '600',
+  },
+  detailValue: {
+    marginTop: 2,
+    color: '#1A347F',
+    fontSize: 14,
+    lineHeight: 18,
+    fontWeight: '800',
+  },
+  actionBtn: {
+    minHeight: 42,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  actionBtnText: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    lineHeight: 21,
+    fontWeight: '800',
+  },
 });

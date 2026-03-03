@@ -4,6 +4,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { JobsService } from '../../api/services';
+import { ApplicationsService } from '../../api/services';
 import { api } from '../../api/client';
 import { Card, EmptyState, Screen, Skeleton } from '../../components/ui';
 import { useAuthStore } from '../../context/authStore';
@@ -12,12 +13,13 @@ import type { Job } from '../../types/models';
 import type { JobsStackParamList } from '../../navigation/app/AppNavigator';
 import { formatDate } from '../../utils/format';
 import { useTheme } from '../../theme/ThemeProvider';
+import { getSavedJobs, setSavedJobs } from '../../utils/savedJobsStorage';
 
 type Props = NativeStackScreenProps<JobsStackParamList, 'JobsList'>;
 
 const splitList = (v: any) => {
   if (Array.isArray(v)) return v.map((x) => String(typeof x === 'string' ? x : x?.name || x || '').trim()).filter(Boolean);
-  if (typeof v === 'string') return v.split(/\r?\n|,|;|•/).map((x) => x.replace(/^[-*\d.)\s]+/, '').trim()).filter(Boolean);
+  if (typeof v === 'string') return v.split(/\r?\n|,|;|•|â€¢/).map((x) => x.replace(/^[-*\d.)\s]+/, '').trim()).filter(Boolean);
   return [] as string[];
 };
 
@@ -29,6 +31,9 @@ const pick = (obj: any, keys: string[], fallback = '') => {
   }
   return fallback;
 };
+
+const jobKey = (j: any) =>
+  String(j?._id || j?.id || `${pick(j, ['title'])}-${pick(j, ['company'])}-${pick(j, ['location'])}`).toLowerCase();
 
 export default function JobsListScreen({ navigation }: Props) {
   const t = useTheme();
@@ -46,7 +51,10 @@ export default function JobsListScreen({ navigation }: Props) {
   const [jobTypeDraft, setJobTypeDraft] = useState('All Job Types');
   const [countryFilter, setCountryFilter] = useState('');
   const [jobTypeFilter, setJobTypeFilter] = useState('');
+  const [savedIds, setSavedIds] = useState<string[]>([]);
+  const [appliedIds, setAppliedIds] = useState<string[]>([]);
   const cardSize = Math.min(104, Math.floor((width - 56) / 3));
+  const userId = String((user as any)?._id || (user as any)?.id || '').trim() || 'guest';
 
   const load = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
@@ -150,6 +158,29 @@ export default function JobsListScreen({ navigation }: Props) {
   useEffect(() => {
     setAvatarFailed(false);
   }, [avatarUri]);
+
+  useEffect(() => {
+    (async () => {
+      const saved = await getSavedJobs(userId);
+      setSavedIds(saved.map((j) => jobKey(j)).filter(Boolean));
+    })();
+  }, [userId]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await ApplicationsService.my();
+        const arr: any[] = Array.isArray(res) ? res : (res as any)?.applications || (res as any)?.items || [];
+        const ids = arr
+          .map((a: any) => a?.job?._id || a?.job?.id || a?.jobId || a?.job)
+          .map((x: any) => String(x || '').trim())
+          .filter(Boolean);
+        setAppliedIds(Array.from(new Set(ids)));
+      } catch {
+        setAppliedIds([]);
+      }
+    })();
+  }, []);
 
   return (
     <Screen padded={false}>
@@ -375,8 +406,7 @@ export default function JobsListScreen({ navigation }: Props) {
           )
         }
         renderItem={({ item }) => (
-          <Pressable onPress={() => navigation.navigate('JobDetails', { jobId: item._id })} style={({ pressed }) => [pressed && styles.cardPressed]}>
-            <Card style={styles.jobCard}>
+          <Card style={styles.jobCard}>
             <View style={styles.jobTopRow}>
               <View style={styles.jobIconWrap}>
                 <Feather name="briefcase" size={19} color="#FFFFFF" />
@@ -391,11 +421,37 @@ export default function JobsListScreen({ navigation }: Props) {
                   </Text>
                 </View>
               </View>
-              <View style={styles.favWrap}>
-                <Feather name="heart" size={18} color="#B7C0D4" />
-              </View>
+              <Pressable
+                style={[
+                  styles.favWrap,
+                  savedIds.includes(jobKey(item)) && styles.favWrapSaved,
+                ]}
+                hitSlop={12}
+                onPress={async () => {
+                  const k = jobKey(item);
+                  const wasSaved = savedIds.includes(k);
+                  const optimistic = wasSaved ? savedIds.filter((x) => x !== k) : [k, ...savedIds];
+                  setSavedIds(optimistic);
+                  try {
+                    const current = await getSavedJobs(userId);
+                    const exists = current.some((j) => jobKey(j) === k);
+                    const next = exists ? current.filter((j) => jobKey(j) !== k) : [item, ...current];
+                    await setSavedJobs(userId, next);
+                    setSavedIds(next.map((j) => jobKey(j)).filter(Boolean));
+                  } catch {
+                    setSavedIds(wasSaved ? [...savedIds] : savedIds.filter((x) => x !== k));
+                  }
+                }}
+              >
+                <Feather
+                  name="heart"
+                  size={18}
+                  color={savedIds.includes(jobKey(item)) ? '#FF3B45' : '#B7C0D4'}
+                />
+              </Pressable>
             </View>
 
+            <Pressable onPress={() => navigation.navigate('JobDetails', { jobId: item._id })} style={({ pressed }) => [pressed && { opacity: 0.97 }]}>
             <View style={styles.badgesRow}>
               {(() => {
                 const tags = splitList((item as any)?.tags).map((x) => x.toLowerCase());
@@ -471,6 +527,7 @@ export default function JobsListScreen({ navigation }: Props) {
                 );
               })()}
             </View>
+            </Pressable>
 
             <View style={styles.cardButtonsRow}>
               <Pressable
@@ -486,18 +543,26 @@ export default function JobsListScreen({ navigation }: Props) {
               <Pressable
                 onPress={(e) => {
                   e.stopPropagation();
-                  navigation.navigate('ApplyJob', { jobId: item._id });
+                  if (!appliedIds.includes(String(item._id))) {
+                    navigation.navigate('ApplyJob', { jobId: item._id });
+                  }
                 }}
                 style={{ flex: 1 }}
               >
-                <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.applyBtn}>
-                  <Feather name="send" size={16} color="#FFFFFF" />
-                  <Text style={[styles.applyBtnText, { fontFamily: t.typography.fontFamily.bold }]}>Apply</Text>
-                </LinearGradient>
+                {appliedIds.includes(String(item._id)) ? (
+                  <View style={styles.appliedBtn}>
+                    <Feather name="check-circle" size={16} color="#119A4F" />
+                    <Text style={[styles.appliedBtnText, { fontFamily: t.typography.fontFamily.bold }]}>Applied</Text>
+                  </View>
+                ) : (
+                  <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.applyBtn}>
+                    <Feather name="send" size={16} color="#FFFFFF" />
+                    <Text style={[styles.applyBtnText, { fontFamily: t.typography.fontFamily.bold }]}>Apply</Text>
+                  </LinearGradient>
+                )}
               </Pressable>
             </View>
-            </Card>
-          </Pressable>
+          </Card>
         )}
       />
     </Screen>
@@ -752,9 +817,6 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 2,
   },
-  cardPressed: {
-    opacity: 0.98,
-  },
   jobTopRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -795,6 +857,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#F0F4FB',
     alignItems: 'center',
     justifyContent: 'center',
+    zIndex: 5,
+    elevation: 2,
+  },
+  favWrapSaved: {
+    backgroundColor: '#FAD9DD',
   },
   badgesRow: {
     flexDirection: 'row',
@@ -918,6 +985,23 @@ const styles = StyleSheet.create({
   },
   applyBtnText: {
     color: '#FFFFFF',
+    fontSize: 17,
+    lineHeight: 21,
+    fontWeight: '800',
+  },
+  appliedBtn: {
+    height: 42,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: '#33C16D',
+    backgroundColor: '#CDEEDB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  appliedBtnText: {
+    color: '#128A4A',
     fontSize: 17,
     lineHeight: 21,
     fontWeight: '800',

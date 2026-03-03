@@ -1,9 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
+import { LinearGradient } from 'expo-linear-gradient';
 import { ChatService, UploadService } from '../../api/services';
-import { Screen } from '../../components/ui';
-import { Feather } from '@expo/vector-icons';
 import type { ChatMessage } from '../../types/models';
 import { useAuthStore } from '../../context/authStore';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -44,20 +43,21 @@ const isMessageMine = (item: any, myId: string) => {
   return item?.isMine === true || item?.mine === true || item?.fromMe === true || item?.isUser === true;
 };
 
-export default function ChatRoomScreen({ route, navigation }: Props) {
+export default function ChatRoomScreen({ route }: Props) {
   const t = useTheme();
+  const { adminId, title, adminEmail, adminRole } = route.params;
   const user = useAuthStore((s) => s.user);
   const myId = norm(user?._id || user?.id);
-  const { adminId, title } = route.params;
-  const listRef = useRef<FlatList>(null);
+  const salesAdminAvatar = require('../../../assets/sales_admin.png');
+  const superAdminAvatar = require('../../../assets/super_admin.png');
+  const roleHint = `${title || ''} ${adminEmail || ''} ${adminRole || ''}`.toLowerCase();
+  const avatarSource = roleHint.includes('super') ? superAdminAvatar : salesAdminAvatar;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
   const timerRef = useRef<any>(null);
-
-  const screenTitle = useMemo(() => title || 'Support Chat', [title]);
 
   const load = async () => {
     try {
@@ -66,7 +66,7 @@ export default function ChatRoomScreen({ route, navigation }: Props) {
       list.sort((a: any, b: any) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
       setMessages(list);
     } catch {
-      setMessages([]);
+      // ignore
     }
   };
 
@@ -76,10 +76,6 @@ export default function ChatRoomScreen({ route, navigation }: Props) {
     return () => timerRef.current && clearInterval(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminId]);
-
-  useEffect(() => {
-    setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 80);
-  }, [messages]);
 
   const send = async (payload?: { attachmentUrl?: string }) => {
     const msg = text.trim();
@@ -113,181 +109,118 @@ export default function ChatRoomScreen({ route, navigation }: Props) {
     }
   };
 
+  const renderItem = ({ item }: { item: ChatMessage }) => {
+    const mine = isMessageMine(item, myId);
+    const body = pickMessageBody(item);
+    const attachmentUrl = pickAttachmentUrl(item);
+    if (!body && !attachmentUrl) return null;
+    return (
+        <View style={[styles.bubbleWrap, mine ? { alignItems: 'flex-end' } : { alignItems: 'flex-start' }]}>
+        <View style={[styles.bubble, mine ? styles.mine : styles.theirs, mine ? { backgroundColor: t.colors.primary } : { backgroundColor: t.colors.surface, borderColor: t.colors.borderStrong }]}>
+          {body ? <Text style={[styles.bubbleText, { color: mine ? 'white' : t.colors.text }]}>{body}</Text> : null}
+          {attachmentUrl ? <Text style={[styles.attachment, { color: mine ? 'rgba(255,255,255,0.9)' : t.colors.primary }]}>Attachment: {attachmentUrl}</Text> : null}
+          <Text style={[styles.time, { color: mine ? 'rgba(255,255,255,0.75)' : t.colors.textMuted }]}>{item.createdAt ? dayjs(item.createdAt).format('h:mm A') : ''}</Text>
+        </View>
+      </View>
+    );
+  };
+
   return (
-    <Screen padded={false}>
+    <View style={styles.root}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <View style={[styles.header, { borderBottomColor: t.colors.border, backgroundColor: '#0B8A60' }]}>
-          <Pressable style={styles.backBtn} onPress={() => navigation.goBack()}>
-            <Feather name="arrow-left" size={20} color="#FFFFFF" />
-          </Pressable>
-          <View style={styles.headerAvatar}>
-            <Text style={styles.headerAvatarText}>{screenTitle.slice(0, 1).toUpperCase()}</Text>
-          </View>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle} numberOfLines={1}>
-              {screenTitle}
-            </Text>
-            <Text style={styles.headerSub}>online</Text>
+        <View style={styles.contactCard}>
+          <Image source={avatarSource} style={styles.avatar} />
+          <View style={styles.contactMeta}>
+            <Text style={styles.contactName}>{title || 'Sales User'}</Text>
+            <Text style={styles.contactEmail}>{adminEmail || 'sales@gmail.com'}</Text>
+            <View style={styles.onlineRow}>
+              <View style={styles.onlineDot} />
+              <Text style={styles.onlineText}>Online</Text>
+            </View>
           </View>
         </View>
-
-        <FlatList
-          ref={listRef}
-          data={messages}
-          keyExtractor={(it: any, idx) => it._id || `${idx}`}
-          contentContainerStyle={{ padding: 12, paddingBottom: 8 }}
-          style={{ backgroundColor: '#EDE5DD' }}
-          renderItem={({ item }: { item: ChatMessage }) => {
-            const mine = isMessageMine(item, myId);
-            const body = pickMessageBody(item);
-            const attachmentUrl = pickAttachmentUrl(item);
-            if (!body && !attachmentUrl) return null;
-            return (
-              <View style={[styles.bubbleWrap, { alignItems: mine ? 'flex-end' : 'flex-start' }]}>
-                <View
-                  style={[
-                    styles.bubble,
-                    mine
-                      ? styles.mineBubble
-                      : styles.theirBubble,
-                  ]}
-                >
-                  {body ? <Text style={[styles.bubbleText, { color: mine ? '#FFFFFF' : t.colors.text }]}>{body}</Text> : null}
-                  {attachmentUrl ? (
-                    <Text style={[styles.attachment, { color: mine ? 'rgba(255,255,255,0.9)' : t.colors.primary }]}>
-                      Attachment: {attachmentUrl}
-                    </Text>
-                  ) : null}
-                  <Text style={[styles.time, { color: mine ? 'rgba(255,255,255,0.75)' : t.colors.textMuted }]}>
-                    {item.createdAt ? dayjs(item.createdAt).format('h:mm A') : ''}
-                  </Text>
-                </View>
-              </View>
-            );
-          }}
-        />
-
-        <View style={[styles.composer, { borderTopColor: t.colors.border, backgroundColor: t.colors.surface }]}>
-          <Pressable onPress={attach} disabled={uploading || sending} style={styles.attachBtn}>
-            <Feather name="paperclip" size={18} color="#5E6A7D" />
-          </Pressable>
-          <TextInput
-            value={text}
-            onChangeText={setText}
-            placeholder="Type a message..."
-            placeholderTextColor={t.colors.textMuted}
-            style={[styles.input, { color: t.colors.text, borderColor: t.colors.borderStrong, backgroundColor: t.colors.background }]}
-          />
-          <Pressable
-            onPress={() => send()}
-            disabled={sending || uploading}
-            style={[styles.sendBtn, { backgroundColor: '#0B8A60' }, (sending || uploading) && { opacity: 0.7 }]}
-          >
-            <Feather name="send" size={16} color="#FFFFFF" />
-          </Pressable>
+        <FlatList data={messages} keyExtractor={(it: any, idx) => it._id || `${idx}`} renderItem={renderItem} contentContainerStyle={styles.messagesContent} />
+        <View style={styles.composer}>
+          <View style={styles.composerCard}>
+            <Pressable onPress={attach} disabled={uploading || sending} style={styles.attachBtn}>
+              <Text style={styles.attachText}>{uploading ? '...' : '+'}</Text>
+            </Pressable>
+            <View style={styles.inputWrap}>
+              <TextInput value={text} onChangeText={setText} placeholder="Type a message..." placeholderTextColor="#5D6F96" style={styles.input} />
+            </View>
+            <Pressable onPress={() => send()} disabled={sending || uploading} style={({ pressed }) => [styles.sendBtnWrap, (sending || uploading || pressed) && { opacity: 0.8 }]}>
+              <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.sendBtn}>
+                <Text style={styles.sendText}>{sending ? '...' : 'Send'}</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
         </View>
       </KeyboardAvoidingView>
-    </Screen>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  header: {
-    minHeight: 58,
-    paddingHorizontal: 10,
-    paddingVertical: 9,
+  root: { flex: 1, backgroundColor: '#D9E0EE' },
+  contactCard: {
     flexDirection: 'row',
     alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#C9D5EC',
+    backgroundColor: 'rgba(255,255,255,0.38)',
   },
-  backBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#D7F3DE',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 8,
-  },
-  headerAvatarText: {
-    fontWeight: '800',
-    color: '#1E6F3A',
-  },
-  headerTitle: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-  },
-  headerSub: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.9)',
-    marginTop: 1,
-  },
-  bubbleWrap: { marginBottom: 10 },
-  bubble: {
-    maxWidth: '82%',
-    paddingHorizontal: 10,
-    paddingVertical: 7,
-    borderRadius: 9,
-  },
-  mineBubble: {
-    backgroundColor: '#DCF8C6',
-    borderTopRightRadius: 2,
-  },
-  theirBubble: {
-    backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 2,
-  },
-  bubbleText: {
-    fontWeight: '500',
-    lineHeight: 19,
-    fontSize: 14,
-  },
-  attachment: {
-    marginTop: 6,
-    fontWeight: '700',
-    fontSize: 12,
-  },
-  time: {
-    marginTop: 4,
-    fontWeight: '600',
-    fontSize: 10,
-    textAlign: 'right',
-  },
-  composer: {
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+  avatar: { width: 102, height: 102, borderRadius: 51 },
+  contactMeta: { marginLeft: 14, flex: 1 },
+  contactName: { color: '#111D3E', fontSize: 25 / 1.2, fontWeight: '900' },
+  contactEmail: { color: '#5B6E95', fontSize: 18 / 1.15, fontWeight: '700', marginTop: 6 },
+  onlineRow: { marginTop: 8, flexDirection: 'row', alignItems: 'center' },
+  onlineDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#5CC463', marginRight: 8 },
+  onlineText: { color: '#5B6E95', fontWeight: '700', fontSize: 18 / 1.2 },
+  messagesContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 200 },
+  bubbleWrap: { marginBottom: 12 },
+  bubble: { maxWidth: '62%', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 22, borderWidth: 1 },
+  mine: { borderColor: 'rgba(255,255,255,0.2)', borderTopRightRadius: 14 },
+  theirs: { borderColor: '#B9C9E8', borderTopLeftRadius: 14 },
+  bubbleText: { fontWeight: '800', lineHeight: 24, fontSize: 20 / 1.3 },
+  attachment: { marginTop: 8, fontWeight: '800', fontSize: 12 },
+  time: { marginTop: 8, fontWeight: '700', fontSize: 14 / 1.2 },
+  composer: { position: 'absolute', left: 14, right: 14, bottom: 110 },
+  composerCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    padding: 10,
+    borderRadius: 28,
+    borderWidth: 1.5,
+    borderColor: '#C9D5EA',
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    shadowColor: '#4A68A8',
+    shadowOpacity: 0.18,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 7,
   },
-  attachBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  input: {
+  attachBtn: { width: 58, height: 58, borderRadius: 18, backgroundColor: '#D5DEEB', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
+  attachText: { color: '#2F78D7', fontWeight: '900', fontSize: 38 / 1.3, marginTop: -2 },
+  inputWrap: {
     flex: 1,
-    minHeight: 38,
-    borderRadius: 18,
-    borderWidth: 0,
-    paddingHorizontal: 12,
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  sendBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: 'center',
+    minHeight: 58,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#CAD4E7',
+    backgroundColor: '#F7F8FC',
     justifyContent: 'center',
   },
+  input: { paddingHorizontal: 18, paddingVertical: 12, fontWeight: '700', fontSize: 17, color: '#334A7D' },
+  sendBtnWrap: { marginLeft: 10 },
+  sendBtn: {
+    minWidth: 86,
+    height: 42,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 18,
+  },
+  sendText: { color: 'white', fontWeight: '800', fontSize: 17, lineHeight: 21 },
 });

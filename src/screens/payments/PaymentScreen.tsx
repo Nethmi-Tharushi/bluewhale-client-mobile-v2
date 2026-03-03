@@ -1,24 +1,22 @@
 import React, { useState } from 'react';
-import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import * as WebBrowser from 'expo-web-browser';
-import { Button, Card, Input, Screen } from '../../components/ui';
-import { InvoicesService } from '../../api/services';
-import { API_BASE_URL } from '../../config/api';
+import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Screen } from '../../components/ui';
+import { InvoicesService, UploadService } from '../../api/services';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InvoicesStackParamList } from '../../navigation/app/AppNavigator';
-import { useTheme } from '../../theme/ThemeProvider';
 
 type Props = NativeStackScreenProps<InvoicesStackParamList, 'Payment'>;
 
 export default function PaymentScreen({ navigation, route }: Props) {
-  const t = useTheme();
-  const { invoiceId, hasProof = false, existingReference = '', existingNotes = '' } = route.params;
+  const { invoiceId } = route.params;
 
-  const [reference, setReference] = useState(existingReference);
-  const [notes, setNotes] = useState(existingNotes);
+  const [reference, setReference] = useState('');
   const [slipName, setSlipName] = useState<string | null>(null);
-  const [slipFile, setSlipFile] = useState<{ uri: string; name: string; type?: string } | null>(null);
+  const [slipUrl, setSlipUrl] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const pickSlip = async () => {
@@ -29,27 +27,29 @@ export default function PaymentScreen({ navigation, route }: Props) {
     });
     if (res.canceled) return;
     const file = res.assets[0];
-    setSlipName(file.name);
-    setSlipFile({
-      uri: file.uri,
-      name: file.name || `payment-slip-${Date.now()}`,
-      type: file.mimeType || 'application/octet-stream',
-    });
+    setUploading(true);
+    try {
+      const uploaded = await UploadService.uploadFile({ uri: file.uri, name: file.name, type: file.mimeType || 'application/octet-stream' });
+      const url = (uploaded as any)?.url || (uploaded as any)?.fileUrl || (uploaded as any)?.path;
+      if (!url) throw new Error('Upload response did not include a URL.');
+      setSlipUrl(url);
+      setSlipName(file.name);
+    } catch (e: any) {
+      Alert.alert('Upload failed', e?.userMessage || e?.message || 'Please try again');
+    } finally {
+      setUploading(false);
+    }
   };
 
   const submitProof = async () => {
-    if (!reference.trim() && !notes.trim() && !slipFile) {
-      Alert.alert('Missing proof', 'Please add reference, notes, or a payment slip.');
+    if (!reference.trim() && !slipUrl) {
+      Alert.alert('Missing proof', 'Please add a reference number and/or upload a slip.');
       return;
     }
     setSubmitting(true);
     try {
-      await InvoicesService.markPaid(invoiceId, {
-        reference: reference.trim() || undefined,
-        notes: notes.trim() || undefined,
-        file: slipFile || undefined,
-      });
-      Alert.alert(hasProof ? 'Updated' : 'Submitted', hasProof ? 'Payment proof updated.' : 'Payment proof submitted. Status will update after verification.');
+      await InvoicesService.markPaid(invoiceId, { reference: reference.trim() || undefined, slipUrl: slipUrl || undefined });
+      Alert.alert('Submitted', 'Payment proof submitted. Status will update after verification.');
       navigation.goBack();
     } catch (e: any) {
       Alert.alert('Failed', e?.userMessage || e?.message || 'Please try again');
@@ -58,60 +58,114 @@ export default function PaymentScreen({ navigation, route }: Props) {
     }
   };
 
-  const openExternalUrl = async (targetUrl: string) => {
-    try {
-      await WebBrowser.openBrowserAsync(targetUrl);
-      return;
-    } catch (err: any) {
-      const msg = String(err?.message || '');
-      if (!msg.toLowerCase().includes('no matching browser activity found')) throw err;
-    }
-    try {
-      await Linking.openURL(targetUrl);
-    } catch {
-      throw new Error('Unable to open browser on this device/emulator.');
-    }
-  };
-
-  const openGateway = async () => {
-    const url = `${API_BASE_URL.replace(/\/$/, '')}/payments/initiate?invoiceId=${encodeURIComponent(invoiceId)}`;
-    try {
-      await openExternalUrl(url);
-    } catch (e: any) {
-      Alert.alert('Unable to open payment page', e?.userMessage || e?.message || 'Please try again');
-    }
-  };
-
   return (
     <Screen>
-      <Card>
-        <Text style={[styles.h, { color: t.colors.primary }]}>{hasProof ? 'Edit payment proof' : 'Payment'}</Text>
-        <Text style={[styles.p, { color: t.colors.textMuted }]}>
-          {hasProof ? 'Update your previously submitted proof details.' : 'Submit proof or continue with payment gateway.'}
-        </Text>
+      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <View style={styles.headerRow}>
+          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn}>
+            <Feather name="arrow-left" size={36} color="#1B3890" />
+          </Pressable>
+          <Text style={styles.h}>Payment</Text>
+        </View>
+        <Text style={styles.p}>Submit proof of payment or pay via gateway.</Text>
 
-        <View style={{ height: 12 }} />
-        <Input label="Reference (optional)" value={reference} onChangeText={setReference} placeholder="Bank ref / Payment ref" />
-        <Input label="Notes (optional)" value={notes} onChangeText={setNotes} placeholder="Any extra payment details" multiline />
+        <View style={styles.section}>
+          <Text style={styles.label}>Reference <Text style={styles.optional}>(optional)</Text></Text>
+          <View style={styles.inputWrap}>
+            <TextInput
+              value={reference}
+              onChangeText={setReference}
+              placeholder="Bank ref / Payment ref"
+              placeholderTextColor="#5D6F95"
+              style={styles.input}
+            />
+          </View>
 
-        <Text style={[styles.label, { color: t.colors.text }]}>Payment slip (optional)</Text>
-        <Text style={[styles.file, { color: t.colors.text }]}>{slipName || (hasProof ? 'Previously submitted slip' : 'No file selected')}</Text>
-        <View style={{ height: 10 }} />
-        <Button title={hasProof ? 'Replace slip' : 'Choose slip'} onPress={pickSlip} />
+          <View style={styles.slipCard}>
+            <Text style={styles.slipTitle}>Payment slip</Text>
+            <Pressable style={styles.uploadRow} onPress={pickSlip} disabled={uploading}>
+              <View style={styles.uploadIconBox}>
+                <Feather name="upload" size={26} color="#F6FAFF" />
+              </View>
+              <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.uploadText}>{uploading ? 'Uploading...' : 'Upload slip'}</Text>
+                <Text style={styles.file}>{slipName || 'No file uploaded'}</Text>
+              </View>
+            </Pressable>
 
-        <View style={{ height: 14 }} />
-        <Button title={submitting ? (hasProof ? 'Updating...' : 'Submitting...') : hasProof ? 'Update proof' : 'Submit proof'} onPress={submitProof} loading={submitting} />
-
-        <View style={{ height: 10 }} />
-        <Button title="Pay via gateway (optional)" variant="ghost" onPress={openGateway} />
-      </Card>
+            <Pressable onPress={submitProof} disabled={submitting} style={({ pressed }) => [pressed && { opacity: 0.92 }, submitting && { opacity: 0.7 }]}>
+              <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.submitBtn}>
+                <Text style={styles.submitText}>{submitting ? 'Submitting...' : 'Submit proof'}</Text>
+              </LinearGradient>
+            </Pressable>
+          </View>
+        </View>
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  h: { fontSize: 22, fontWeight: '900' },
-  p: { marginTop: 6, fontWeight: '700' },
-  label: { marginTop: 4, fontWeight: '800', marginBottom: 4 },
-  file: { fontWeight: '700' },
+  content: { paddingBottom: 150 },
+  headerRow: { marginTop: 18, flexDirection: 'row', alignItems: 'center' },
+  backBtn: { width: 50, alignItems: 'flex-start', justifyContent: 'center' },
+  h: { fontSize: 50 / 2, lineHeight: 30, fontWeight: '900', color: '#1B3890', marginTop: 10 },
+  p: { marginTop: 10, fontWeight: '600', fontSize: 18 / 1.1, color: '#58688D' },
+  section: {
+    marginTop: 16,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#D7E2F5',
+    backgroundColor: 'rgba(255,255,255,0.45)',
+    padding: 12,
+  },
+  label: { fontWeight: '900', marginBottom: 10, color: '#1B233F', fontSize: 22 / 1.2 },
+  optional: { fontWeight: '700', color: '#5D6F95' },
+  inputWrap: {
+    minHeight: 56,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#BFCDEA',
+    backgroundColor: '#F7F9FD',
+    justifyContent: 'center',
+    paddingHorizontal: 14,
+  },
+  input: { fontSize: 17, color: '#32497B', fontWeight: '700' },
+  slipCard: {
+    marginTop: 12,
+    borderRadius: 24,
+    backgroundColor: '#F7F9FC',
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#D6E0F3',
+  },
+  slipTitle: { fontSize: 22 / 1.2, fontWeight: '900', color: '#1B233F', marginBottom: 10 },
+  uploadRow: {
+    minHeight: 84,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#BFCDEA',
+    backgroundColor: '#F3F6FC',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+  uploadIconBox: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: '#2A87DB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadText: { fontSize: 18 / 1.1, fontWeight: '800', color: '#33529A' },
+  file: { marginTop: 3, fontWeight: '600', fontSize: 16 / 1.1, color: '#5D6F95' },
+  submitBtn: {
+    height: 56,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 12,
+  },
+  submitText: { color: '#FFFFFF', fontSize: 19 / 1.1, fontWeight: '900' },
 });

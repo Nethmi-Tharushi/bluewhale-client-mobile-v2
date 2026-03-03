@@ -3,6 +3,7 @@ import { StyleSheet, View } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useTheme } from '../../theme/ThemeProvider';
 
 import JobsListScreen from '../../screens/jobs/JobsListScreen';
@@ -28,13 +29,13 @@ export type JobsStackParamList = {
 
 export type ChatStackParamList = {
   ChatList: undefined;
-  ChatRoom: { adminId: string; title?: string };
+  ChatRoom: { adminId: string; title?: string; adminEmail?: string; adminRole?: string };
 };
 
 export type InvoicesStackParamList = {
   InvoicesList: undefined;
   InvoiceDetails: { invoiceId: string; invoice?: Invoice };
-  Payment: { invoiceId: string; hasProof?: boolean; existingReference?: string; existingNotes?: string };
+  Payment: { invoiceId: string };
 };
 
 export type InquiryStackParamList = {
@@ -120,10 +121,25 @@ function InquiryNavigator() {
   );
 }
 
-function TabIcon({ focused, icon }: { focused: boolean; icon: keyof typeof Feather.glyphMap }) {
+function TabIcon({
+  focused,
+  active,
+  inactive,
+}: {
+  focused: boolean;
+  active: keyof typeof Feather.glyphMap;
+  inactive: keyof typeof Feather.glyphMap;
+}) {
+  if (focused) {
+    return (
+      <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.4 }} end={{ x: 1, y: 1 }} style={styles.iconWrapActiveGradient}>
+        <Feather name={active} size={21} color="#FFFFFF" />
+      </LinearGradient>
+    );
+  }
   return (
-    <View style={[styles.iconWrap, focused && styles.iconWrapActive]}>
-      <Feather name={icon} size={20} color={focused ? '#1B3890' : '#7384B2'} />
+    <View style={styles.iconWrap}>
+      <Feather name={inactive} size={21} color="#7384B2" />
     </View>
   );
 }
@@ -146,35 +162,37 @@ export default function AppNavigator() {
         name="Home"
         component={JobsNavigator}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon focused={focused} icon="home" />,
+          tabBarLabel: 'Home',
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} active="home" inactive="home" />,
         }}
       />
       <Tab.Screen
         name="Jobs"
         component={MyApplicationsScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon focused={focused} icon="briefcase" />,
+          tabBarLabel: 'Jobs',
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} active="briefcase" inactive="briefcase" />,
         }}
       />
       <Tab.Screen
         name="Bills"
         component={InvoicesNavigator}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon focused={focused} icon="file-text" />,
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} active="file-text" inactive="file-text" />,
         }}
       />
       <Tab.Screen
         name="Chat"
         component={ChatNavigator}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon focused={focused} icon="message-circle" />,
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} active="message-circle" inactive="message-circle" />,
         }}
       />
       <Tab.Screen
         name="Me"
         component={ProfileScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon focused={focused} icon="user" />,
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} active="user" inactive="user" />,
         }}
       />
       <Tab.Screen
@@ -190,32 +208,51 @@ export default function AppNavigator() {
 
 const styles = StyleSheet.create({
   tabBar: {
-    height: 66,
-    paddingTop: 6,
-    paddingBottom: 8,
-    borderTopWidth: 1,
-    borderTopColor: '#E2E8F0',
-    backgroundColor: '#FFFFFF',
+    position: 'absolute',
+    left: 14,
+    right: 14,
+    bottom: 14,
+    height: 104,
+    paddingTop: 10,
+    paddingBottom: 12,
+    paddingHorizontal: 10,
+    borderTopWidth: 0,
+    borderRadius: 34,
+    backgroundColor: 'rgba(255,255,255,0.97)',
+    shadowColor: '#5169A5',
+    shadowOpacity: 0.22,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 12,
   },
   tabItem: {
-    borderRadius: 10,
-    marginHorizontal: 1,
+    borderRadius: 20,
+    marginHorizontal: 2,
   },
   tabLabel: {
-    fontSize: 11,
-    fontWeight: '600',
-    marginTop: 2,
-    marginBottom: 0,
+    fontSize: 10.5,
+    fontWeight: '700',
+    marginTop: 4,
+    marginBottom: 2,
   },
   iconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 9,
+    width: 50,
+    height: 50,
+    borderRadius: 18,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
-  iconWrapActive: {
-    backgroundColor: '#EEF2FF',
+  iconWrapActiveGradient: {
+    width: 58,
+    height: 58,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#1651AA',
+    shadowOpacity: 0.28,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 8,
   },
 });
