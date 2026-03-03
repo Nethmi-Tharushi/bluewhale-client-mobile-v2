@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, FlatList, Image, Keyboard, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
@@ -60,7 +60,9 @@ export default function ChatRoomScreen({ route, navigation }: Props) {
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const timerRef = useRef<any>(null);
+  const listRef = useRef<FlatList<ChatMessage> | null>(null);
 
   const load = async () => {
     try {
@@ -80,6 +82,26 @@ export default function ChatRoomScreen({ route, navigation }: Props) {
     return () => timerRef.current && clearInterval(timerRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [adminId]);
+
+  useEffect(() => {
+    const onShow = (e: any) => {
+      setKeyboardHeight(e?.endCoordinates?.height || 0);
+      requestAnimationFrame(() => {
+        listRef.current?.scrollToOffset?.({ offset: 0, animated: true });
+      });
+    };
+    const onHide = () => setKeyboardHeight(0);
+    const subWillShow = Keyboard.addListener('keyboardWillShow', onShow);
+    const subDidShow = Keyboard.addListener('keyboardDidShow', onShow);
+    const subWillHide = Keyboard.addListener('keyboardWillHide', onHide);
+    const subDidHide = Keyboard.addListener('keyboardDidHide', onHide);
+    return () => {
+      subWillShow.remove();
+      subDidShow.remove();
+      subWillHide.remove();
+      subDidHide.remove();
+    };
+  }, []);
 
   const send = async (payload?: { attachmentUrl?: string }) => {
     const msg = text.trim();
@@ -129,9 +151,12 @@ export default function ChatRoomScreen({ route, navigation }: Props) {
     );
   };
 
+  const composerBottom = keyboardHeight > 0 ? keyboardHeight + 8 : insets.bottom + 96;
+  const messagesTopPadding = keyboardHeight > 0 ? 76 : insets.bottom + 170;
+
   return (
     <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
         <View style={styles.contactCard}>
           <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={8}>
             <Feather name="arrow-left" size={20} color="#1A347F" />
@@ -147,14 +172,16 @@ export default function ChatRoomScreen({ route, navigation }: Props) {
           </View>
         </View>
         <FlatList
+          ref={listRef}
           data={messages}
           keyExtractor={(it: any, idx) => it._id || `${idx}`}
           renderItem={renderItem}
           inverted
-          contentContainerStyle={[styles.messagesContent, { paddingTop: insets.bottom + 170, paddingBottom: 12 }]}
+          keyboardShouldPersistTaps="handled"
+          contentContainerStyle={[styles.messagesContent, { paddingTop: messagesTopPadding, paddingBottom: 12 }]}
           showsVerticalScrollIndicator={false}
         />
-        <View style={[styles.composer, { bottom: insets.bottom + 96 }]}>
+        <View style={[styles.composer, { bottom: composerBottom }]}>
           <View style={styles.composerCard}>
             <Pressable onPress={attach} disabled={uploading || sending} style={styles.attachBtn}>
               <Feather name="paperclip" size={18} color="#2F78D7" />

@@ -7,6 +7,7 @@ import { api } from '../../api/client';
 import { useAuthStore } from '../../context/authStore';
 import { useTheme } from '../../theme/ThemeProvider';
 import { Feather } from '@expo/vector-icons';
+import { isValidUaeMobile, normalizeUaeMobile, UAE_PHONE_EXAMPLE } from '../../utils/phone';
 
 export default function ProfileScreen() {
   const t = useTheme();
@@ -78,11 +79,16 @@ export default function ProfileScreen() {
   const save = async () => {
     setSaving(true);
     try {
+      const normalizedPhone = normalizeUaeMobile(phone);
+      if (phone.trim() && !isValidUaeMobile(phone)) {
+        Alert.alert('Invalid phone', `Use UAE mobile format like ${UAE_PHONE_EXAMPLE} or 05XXXXXXXX.`);
+        return;
+      }
       const resolvedAvatar = avatarUrl.trim() || undefined;
       const updated = await AuthService.updateProfile({
         name: name.trim(),
         email: email.trim(),
-        phone: phone.trim() || undefined,
+        phone: normalizedPhone || undefined,
         removePhoto: !resolvedAvatar,
         picture: resolvedAvatar,
         avatarUrl: resolvedAvatar,
@@ -213,7 +219,7 @@ export default function ProfileScreen() {
           <View style={{ height: 6 }} />
           <Input label="Name" value={name} onChangeText={setName} placeholder="Your name" />
           <Input label="Email" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" />
-          <Input label="Phone" value={phone} onChangeText={setPhone} placeholder="07X XXX XXXX" keyboardType="phone-pad" />
+          <Input label="Phone" value={phone} onChangeText={setPhone} placeholder={UAE_PHONE_EXAMPLE} keyboardType="phone-pad" />
           <Button title={saving ? 'Saving...' : 'Save changes'} onPress={save} loading={saving} />
         </View>
 

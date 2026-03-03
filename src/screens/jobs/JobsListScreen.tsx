@@ -206,7 +206,7 @@ export default function JobsListScreen({ navigation }: Props) {
             </View>
 
             <View style={styles.heroTop}>
-              <View>
+              <View style={styles.heroTextColumn}>
                 <Text allowFontScaling={false} style={[styles.hello, { color: '#1B3890', fontFamily: t.typography.fontFamily.regular }]}>
                   Hello,
                 </Text>
@@ -226,6 +226,45 @@ export default function JobsListScreen({ navigation }: Props) {
             <View style={styles.brandWelcomeRow}>
               <Text style={[styles.brandWelcomeText, { color: '#1B3890', fontFamily: t.typography.fontFamily.bold }]}>Welcome to Blue Whale Migration!</Text>
               <Image source={require('../../../assets/blue-whale-favicon.png')} style={styles.brandWelcomeBadge} resizeMode="contain" />
+            </View>
+
+            <View style={styles.quickRow}>
+              {[
+                { key: 'Jobs', icon: 'briefcase' as const, active: true, action: () => navigation.getParent()?.navigate('Home' as never) },
+                { key: 'Applications', icon: 'file-text' as const, active: false, action: () => navigation.getParent()?.navigate('Jobs' as never) },
+                {
+                  key: 'Inquiries',
+                  icon: 'help-circle' as const,
+                  active: false,
+                  action: () =>
+                    (navigation.getParent() as any)?.navigate('Inquiries', {
+                      screen: 'InquiryList',
+                    }),
+                },
+              ].map((item) => (
+                <Pressable
+                  key={item.key}
+                  onPress={item.action}
+                  style={[
+                    styles.quickCard,
+                    { width: cardSize, height: cardSize - 22 },
+                    item.active ? styles.quickCardActive : styles.quickCardIdle,
+                  ]}
+                >
+                  <View style={styles.quickIconChip}>
+                    <Feather name={item.icon} size={18} color="#F8FAFC" />
+                  </View>
+                  <Text
+                    style={[
+                      styles.quickText,
+                      { color: item.active ? '#1B3890' : '#22325E', fontFamily: t.typography.fontFamily.bold },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {item.key}
+                  </Text>
+                </Pressable>
+              ))}
             </View>
 
             <View style={styles.searchBox}>
@@ -346,56 +385,12 @@ export default function JobsListScreen({ navigation }: Props) {
               </View>
             ) : null}
 
-            <Image source={require('../../../assets/home_image.png')} resizeMode="cover" style={styles.homeImage} />
-
-            <Text allowFontScaling={false} style={[styles.sectionTitle, { color: '#1B3890', fontFamily: t.typography.fontFamily.bold }]}>
-              Recommended for you
-            </Text>
-            <View style={styles.quickRow}>
-              {[
-                { key: 'Jobs', icon: 'briefcase' as const, active: true, action: () => navigation.getParent()?.navigate('Home' as never) },
-                { key: 'Applications', icon: 'file-text' as const, active: false, action: () => navigation.getParent()?.navigate('Jobs' as never) },
-                {
-                  key: 'Inquiries',
-                  icon: 'help-circle' as const,
-                  active: false,
-                  action: () =>
-                    (navigation.getParent() as any)?.navigate('Inquiries', {
-                      screen: 'InquiryList',
-                    }),
-                },
-              ].map((item) => (
-                <Pressable
-                  key={item.key}
-                  onPress={item.action}
-                  style={[
-                    styles.quickCard,
-                    { width: cardSize, height: cardSize - 4 },
-                    item.active ? styles.quickCardActive : styles.quickCardIdle,
-                  ]}
-                >
-                  <View style={styles.quickIconChip}>
-                    <Feather name={item.icon} size={20} color="#F8FAFC" />
-                  </View>
-                  <Text
-                    style={[
-                      styles.quickText,
-                      { color: item.active ? '#1B3890' : '#22325E', fontFamily: t.typography.fontFamily.bold },
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {item.key}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
-
             <View style={styles.categoryRow}>
               <Text allowFontScaling={false} style={[styles.categoryTitle, { color: '#1B3890', fontFamily: t.typography.fontFamily.bold }]}>
-                Job Categories
+                Latest Jobs
               </Text>
               <Text allowFontScaling={false} style={[styles.viewAll, { color: '#5D7BBE', fontFamily: t.typography.fontFamily.medium }]}>
-                View all
+                {`${filtered.length} found`}
               </Text>
             </View>
           </View>
@@ -424,10 +419,26 @@ export default function JobsListScreen({ navigation }: Props) {
                 <Text style={[styles.jobTitle, { color: '#122A74', fontFamily: t.typography.fontFamily.bold }]} numberOfLines={2}>
                   {pick(item, ['title', 'jobTitle', 'position'], 'Untitled role')}
                 </Text>
-                <View style={styles.typePill}>
-                  <Text style={[styles.typePillText, { fontFamily: t.typography.fontFamily.medium }]}>
-                    {pick(item, ['type', 'jobType', 'employmentType'], 'Type')}
-                  </Text>
+                <View style={styles.tagsInlineRow}>
+                  <View style={styles.typePill}>
+                    <Text style={[styles.typePillText, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>
+                      {pick(item, ['type', 'jobType', 'employmentType'], 'Type')}
+                    </Text>
+                  </View>
+                  {(() => {
+                    const tags = splitList((item as any)?.tags).map((x) => x.toLowerCase());
+                    const b: string[] = [];
+                    if ((item as any)?.featured || tags.includes('featured')) b.push('Featured');
+                    if ((item as any)?.urgent || tags.includes('urgent')) b.push('Urgent');
+                    if ((item as any)?.visaSponsored || (item as any)?.visa_sponsored || tags.includes('visa sponsored')) b.push('Visa Sponsored');
+                    return b.slice(0, 2).map((x) => (
+                      <View key={`${item._id}-${x}`} style={styles.badgePill}>
+                        <Text style={[styles.badgeText, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>
+                          {x}
+                        </Text>
+                      </View>
+                    ));
+                  })()}
                 </View>
               </View>
               <Pressable
@@ -461,21 +472,6 @@ export default function JobsListScreen({ navigation }: Props) {
             </View>
 
             <Pressable onPress={() => navigation.navigate('JobDetails', { jobId: item._id })} style={({ pressed }) => [pressed && { opacity: 0.97 }]}>
-            <View style={styles.badgesRow}>
-              {(() => {
-                const tags = splitList((item as any)?.tags).map((x) => x.toLowerCase());
-                const b: string[] = [];
-                if ((item as any)?.featured || tags.includes('featured')) b.push('Featured');
-                if ((item as any)?.urgent || tags.includes('urgent')) b.push('Urgent');
-                if ((item as any)?.visaSponsored || (item as any)?.visa_sponsored || tags.includes('visa sponsored')) b.push('Visa Sponsored');
-                return b.slice(0, 3).map((x) => (
-                  <View key={`${item._id}-${x}`} style={styles.badgePill}>
-                    <Text style={[styles.badgeText, { fontFamily: t.typography.fontFamily.medium }]}>{x}</Text>
-                  </View>
-                ));
-              })()}
-            </View>
-
             <View style={styles.metaWrap}>
               <View style={styles.metaPill}>
                 <Feather name="map-pin" size={14} color="#1A7DD5" />
@@ -580,30 +576,32 @@ export default function JobsListScreen({ navigation }: Props) {
 
 const styles = StyleSheet.create({
   content: {
-    paddingHorizontal: Spacing.md,
-    paddingBottom: 130,
+    paddingHorizontal: 12,
+    paddingBottom: 108,
   },
   brandWelcomeRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 10,
-    borderWidth: 1,
-    borderColor: '#D5DEF3',
-    backgroundColor: '#F8FAFC',
-    borderRadius: 16,
-    paddingVertical: 10,
-    paddingHorizontal: 14,
+    marginBottom: 6,
+    borderWidth: 0,
+    backgroundColor: '#DCEBFF',
+    borderRadius: 14,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
   },
   brandWelcomeText: {
     flex: 1,
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: 16,
+    lineHeight: 22,
     fontWeight: '800',
+    textAlign: 'left',
+    includeFontPadding: false,
+    marginLeft: -1,
   },
   brandWelcomeBadge: {
-    width: 28,
-    height: 28,
+    width: 24,
+    height: 24,
     marginLeft: 10,
     borderRadius: 8,
   },
@@ -611,32 +609,43 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: 8,
+  },
+  heroTextColumn: {
+    flex: 1,
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    paddingRight: 10,
+    marginLeft: 6,
   },
   centerBrandWrap: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 10,
+    marginBottom: 6,
   },
   centerBrandLogo: {
-    width: 220,
-    height: 72,
+    width: 170,
+    height: 54,
   },
   hello: {
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 16,
+    lineHeight: 20,
     fontWeight: '400',
+    textAlign: 'left',
+    includeFontPadding: false,
   },
   name: {
     marginTop: 2,
-    fontSize: 22,
-    lineHeight: 28,
+    fontSize: 18,
+    lineHeight: 22,
     fontWeight: '800',
+    textAlign: 'left',
+    includeFontPadding: false,
   },
   avatarWrap: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#E5ECFA',
@@ -649,33 +658,33 @@ const styles = StyleSheet.create({
     height: '100%',
   },
   searchBox: {
-    minHeight: 52,
-    borderRadius: 16,
+    minHeight: 46,
+    borderRadius: 14,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
     borderColor: '#D3DDF4',
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
   },
   search: {
     flex: 1,
-    fontSize: 15,
-    lineHeight: 20,
-    marginLeft: 10,
+    fontSize: 14,
+    lineHeight: 18,
+    marginLeft: 8,
     marginRight: 4,
     fontWeight: '500',
   },
   filterRow: {
-    marginTop: 8,
+    marginTop: 6,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
   },
   filterSelect: {
     flex: 1,
-    minHeight: 44,
-    borderRadius: 12,
+    minHeight: 40,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#C7D8F3',
     backgroundColor: '#F8FAFC',
@@ -688,14 +697,14 @@ const styles = StyleSheet.create({
     marginLeft: 6,
     marginRight: 4,
     color: '#29477E',
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '600',
   },
   filterBtn: {
-    minHeight: 44,
-    minWidth: 64,
-    borderRadius: 12,
+    minHeight: 40,
+    minWidth: 62,
+    borderRadius: 10,
     backgroundColor: '#165EAC',
     alignItems: 'center',
     justifyContent: 'center',
@@ -703,14 +712,14 @@ const styles = StyleSheet.create({
   },
   filterBtnText: {
     color: '#FFFFFF',
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '800',
   },
   resetBtn: {
-    minHeight: 44,
-    minWidth: 64,
-    borderRadius: 12,
+    minHeight: 40,
+    minWidth: 62,
+    borderRadius: 10,
     backgroundColor: '#EFF3F9',
     borderWidth: 1,
     borderColor: '#D2DDF2',
@@ -720,8 +729,8 @@ const styles = StyleSheet.create({
   },
   resetBtnText: {
     color: '#37507D',
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '800',
   },
   dropdownPanel: {
@@ -745,30 +754,18 @@ const styles = StyleSheet.create({
     lineHeight: 20,
     fontWeight: '600',
   },
-  homeImage: {
-    width: '100%',
-    height: 138,
-    borderRadius: 18,
-    marginTop: 10,
-  },
-  sectionTitle: {
-    marginTop: 12,
-    fontSize: 19,
-    lineHeight: 24,
-    fontWeight: '800',
-  },
   quickRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: 10,
-    marginBottom: 10,
+    marginTop: 4,
+    marginBottom: 8,
   },
   quickCard: {
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
   },
   quickCardActive: {
     backgroundColor: '#DDEBFD',
@@ -784,41 +781,42 @@ const styles = StyleSheet.create({
     borderColor: '#CBD8F0',
   },
   quickIconChip: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 9,
     backgroundColor: '#0F79C5',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 8,
+    marginBottom: 6,
   },
   quickText: {
-    fontSize: 13,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '700',
   },
   categoryRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginTop: 12,
+    marginBottom: 6,
   },
   categoryTitle: {
-    fontSize: 17,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '800',
   },
   viewAll: {
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '500',
   },
   jobCard: {
-    marginBottom: Spacing.sm,
-    padding: 12,
+    marginBottom: 8,
+    padding: 10,
     borderWidth: 1,
     borderColor: '#D5DEF3',
-    borderRadius: Radius.lg + 2,
+    borderRadius: 14,
     backgroundColor: '#F8FAFC',
     shadowColor: '#5F82BA',
     shadowOffset: { width: 0, height: 4 },
@@ -829,35 +827,43 @@ const styles = StyleSheet.create({
   jobTopRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginBottom: 10,
+    marginBottom: 7,
   },
   jobIconWrap: {
-    width: 46,
-    height: 46,
-    borderRadius: 13,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: '#196FC0',
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 10,
+    marginRight: 8,
   },
   jobTitle: {
-    fontSize: 22,
-    lineHeight: 28,
-    fontWeight: '900',
+    fontSize: 16,
+    lineHeight: 20,
+    fontWeight: '800',
   },
   typePill: {
-    marginTop: 7,
-    alignSelf: 'flex-start',
+    marginTop: 5,
     backgroundColor: '#DCEBFF',
     borderRadius: 999,
-    paddingHorizontal: 12,
-    paddingVertical: 5,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    maxWidth: '48%',
   },
   typePillText: {
     color: '#1A66B8',
     fontSize: 13,
     lineHeight: 17,
     fontWeight: '700',
+  },
+  tagsInlineRow: {
+    marginTop: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'nowrap',
+    overflow: 'hidden',
   },
   favWrap: {
     width: 34,
@@ -875,8 +881,8 @@ const styles = StyleSheet.create({
   badgesRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 10,
+    gap: 6,
+    marginBottom: 7,
   },
   badgePill: {
     paddingHorizontal: 10,
@@ -885,6 +891,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FDEAEA',
     borderWidth: 1,
     borderColor: '#F8CFCF',
+    maxWidth: '48%',
   },
   badgeText: {
     color: '#BD212A',
@@ -895,13 +902,13 @@ const styles = StyleSheet.create({
   metaWrap: {
     flexDirection: 'row',
     gap: 8,
-    marginBottom: 8,
+    marginBottom: 6,
   },
   metaPill: {
     flex: 1,
-    borderRadius: 11,
-    paddingHorizontal: 9,
-    paddingVertical: 8,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     backgroundColor: '#EEF4FE',
     flexDirection: 'row',
     alignItems: 'center',
@@ -918,8 +925,8 @@ const styles = StyleSheet.create({
   metaText: {
     marginLeft: 5,
     color: '#23407F',
-    fontSize: 13,
-    lineHeight: 17,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '600',
     flex: 1,
   },
@@ -933,15 +940,15 @@ const styles = StyleSheet.create({
     color: '#D25913',
   },
   reqHeading: {
-    marginTop: 2,
-    marginBottom: 6,
-    fontSize: 16,
-    lineHeight: 21,
+    marginTop: 1,
+    marginBottom: 4,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '900',
   },
   reqList: {
-    marginBottom: 10,
-    gap: 6,
+    marginBottom: 7,
+    gap: 4,
   },
   reqRow: {
     flexDirection: 'row',
@@ -949,70 +956,70 @@ const styles = StyleSheet.create({
   },
   reqText: {
     flex: 1,
-    marginLeft: 8,
+    marginLeft: 6,
     color: '#33435F',
-    fontSize: 15,
-    lineHeight: 21,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '500',
   },
   reqMore: {
     color: '#1D6FC7',
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '700',
   },
   cardButtonsRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 2,
+    gap: 8,
+    marginTop: 1,
   },
   detailsBtn: {
     flex: 1,
-    height: 42,
-    borderRadius: 11,
+    height: 36,
+    borderRadius: 9,
     borderWidth: 1,
     borderColor: '#5EA1E4',
     backgroundColor: '#F8FAFC',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 7,
+    gap: 6,
   },
   detailsBtnText: {
     color: '#1F73CA',
-    fontSize: 16,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: '800',
   },
   applyBtn: {
-    height: 42,
-    borderRadius: 11,
+    height: 36,
+    borderRadius: 9,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 7,
+    gap: 6,
   },
   applyBtnText: {
     color: '#FFFFFF',
-    fontSize: 17,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: '800',
   },
   appliedBtn: {
-    height: 42,
-    borderRadius: 11,
+    height: 36,
+    borderRadius: 9,
     borderWidth: 1,
     borderColor: '#33C16D',
     backgroundColor: '#CDEEDB',
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 7,
+    gap: 6,
   },
   appliedBtnText: {
     color: '#128A4A',
-    fontSize: 17,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: '800',
   },
 });

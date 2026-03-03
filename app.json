@@ -11,22 +11,26 @@
       "resizeMode": "contain",
       "backgroundColor": "#0b1220"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.bluewhale.client"
+      "bundleIdentifier": "com.bluewhale.client",
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0b1220"
       },
-      "package": "com.bluewhale.client"
+      "package": "com.bluewhale.client",
+      "versionCode": 1
     },
     "plugins": [],
     "extra": {
       "eas": {
-        "projectId": "00000000-0000-0000-0000-000000000000"
+        "projectId": "568f19b1-0f28-46c7-904b-1f4739307842"
       }
     }
   }

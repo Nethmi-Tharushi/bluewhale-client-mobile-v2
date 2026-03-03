@@ -8,6 +8,7 @@ import { useAuthStore } from '../../context/authStore';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../../navigation/auth/AuthNavigator';
 import { useTheme } from '../../theme/ThemeProvider';
+import { isValidUaeMobile, normalizeUaeMobile, UAE_PHONE_EXAMPLE } from '../../utils/phone';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
@@ -26,12 +27,17 @@ export default function RegisterScreen({ navigation }: Props) {
       Alert.alert('Invalid details', 'Please enter name, email and a password (min 6 characters).');
       return;
     }
+    const normalizedPhone = normalizeUaeMobile(phone);
+    if (phone.trim() && !isValidUaeMobile(phone)) {
+      Alert.alert('Invalid phone', `Use UAE mobile format like ${UAE_PHONE_EXAMPLE} or 05XXXXXXXX.`);
+      return;
+    }
     setLoading(true);
     try {
       const res = await AuthService.signup({
         name: name.trim(),
         email: email.trim(),
-        phone: phone.trim() || undefined,
+        phone: normalizedPhone || undefined,
         password,
         userType: 'candidate',
       });
@@ -98,7 +104,7 @@ export default function RegisterScreen({ navigation }: Props) {
                 <TextInput
                   value={phone}
                   onChangeText={setPhone}
-                  placeholder="07X XXXX XXXX"
+                  placeholder={UAE_PHONE_EXAMPLE}
                   placeholderTextColor={t.colors.grayMutedDark}
                   keyboardType="phone-pad"
                   style={[styles.inputText, styles.passwordInput, { color: t.colors.grayMutedDark, fontFamily: t.typography.fontFamily.medium }]}
@@ -148,8 +154,8 @@ const styles = StyleSheet.create({
   },
   hero: {
     alignItems: 'center',
-    paddingTop: 10,
-    paddingBottom: 16,
+    paddingTop: 6,
+    paddingBottom: 12,
   },
   logoHalo: {
     position: 'absolute',
@@ -160,9 +166,9 @@ const styles = StyleSheet.create({
     top: -4,
   },
   logoPlateOuter: {
-    width: 198,
-    height: 198,
-    borderRadius: 34,
+    width: 156,
+    height: 156,
+    borderRadius: 28,
     backgroundColor: '#F9FBFF',
     alignItems: 'center',
     justifyContent: 'center',
@@ -173,36 +179,36 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   logoPlateInner: {
-    width: 158,
-    height: 158,
-    borderRadius: 28,
+    width: 124,
+    height: 124,
+    borderRadius: 22,
     backgroundColor: '#DDEBFD',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  brandMark: { width: 122, height: 122 },
+  brandMark: { width: 92, height: 92 },
   title: {
-    marginTop: 28,
-    fontSize: 40,
-    lineHeight: 46,
+    marginTop: 18,
+    fontSize: 30,
+    lineHeight: 36,
     fontWeight: '900',
     color: '#1B3890',
   },
   sub: {
-    marginTop: 10,
-    fontSize: 21,
-    lineHeight: 28,
+    marginTop: 8,
+    fontSize: 15,
+    lineHeight: 21,
     fontWeight: '600',
     color: '#6B6F70',
     textAlign: 'center',
   },
   formCard: {
-    marginTop: 16,
+    marginTop: 12,
     marginHorizontal: 20,
     backgroundColor: '#F8FAFC',
-    borderRadius: 24,
-    paddingHorizontal: 20,
-    paddingVertical: 18,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     shadowColor: '#7FA7DD',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2,
@@ -211,21 +217,21 @@ const styles = StyleSheet.create({
   },
   label: {
     color: '#111827',
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 14,
+    lineHeight: 19,
     fontWeight: '800',
     marginBottom: 10,
   },
   inputRow: {
-    minHeight: 58,
-    borderRadius: 22,
+    minHeight: 52,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: '#AEC3EB',
     backgroundColor: '#F8FAFC',
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 14,
-    marginBottom: 16,
+    paddingHorizontal: 12,
+    marginBottom: 12,
   },
   leftIcon: {
     marginRight: 10,
@@ -233,36 +239,36 @@ const styles = StyleSheet.create({
   inputText: {
     flex: 1,
     color: '#6B6F70',
-    fontSize: 17,
-    lineHeight: 24,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '700',
   },
   passwordInput: {
     paddingRight: 10,
   },
   showText: {
-    fontSize: 17,
-    lineHeight: 24,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: '900',
   },
   buttonPressable: {
     marginTop: 4,
   },
   primaryBtn: {
-    height: 56,
-    borderRadius: 20,
+    height: 50,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   primaryBtnText: {
     color: '#FFFFFF',
-    fontSize: 17,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: '800',
   },
   backButton: {
-    height: 56,
-    borderRadius: 20,
+    height: 50,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#5AA0E8',
     backgroundColor: '#F8FBFF',
@@ -271,8 +277,8 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   backButtonText: {
-    fontSize: 17,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: '800',
   },
 });
