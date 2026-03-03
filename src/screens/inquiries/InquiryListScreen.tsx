@@ -57,7 +57,7 @@ export default function InquiryListScreen({ navigation }: Props) {
             <Text style={[styles.heading, { color: '#1B3890' }]}>My Inquiries</Text>
             <Text style={[styles.sub, { color: '#5E6F95' }]}>Questions and support updates</Text>
             <View style={styles.createWrap}>
-              <Button title="Create inquiry" onPress={() => navigation.navigate('CreateInquiry', {})} />
+              <Button title="Create inquiry" onPress={() => navigation.push('CreateInquiry', { jobId: '' })} />
             </View>
           </View>
         }

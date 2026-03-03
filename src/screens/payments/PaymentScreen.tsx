@@ -28,7 +28,8 @@ export default function PaymentScreen({ navigation, route }: Props) {
   };
 
   const detectProof = (invoice: any) => {
-    const proof = invoice?.paymentProof || invoice?.proof || invoice?.payment || invoice?.paymentDetails || {};
+    const proof =
+      invoice?.paymentProof || invoice?.latestProof || invoice?.proof || invoice?.payment || invoice?.paymentDetails || {};
     const existingReference = firstString([
       invoice?.reference,
       invoice?.referenceNo,
@@ -66,7 +67,7 @@ export default function PaymentScreen({ navigation, route }: Props) {
           const name = existingSlipUrl.split('/').pop()?.split('?')[0] || 'Existing slip';
           setSlipName(name);
         }
-        setHasExistingProof(Boolean(existingReference || existingSlipUrl));
+        setHasExistingProof(Boolean(invoice?.hasPaymentProof || existingReference || existingSlipUrl));
       } catch {
         setHasExistingProof(false);
       }
@@ -122,7 +123,7 @@ export default function PaymentScreen({ navigation, route }: Props) {
           </Pressable>
           <Text style={styles.h}>Payment</Text>
         </View>
-        <Text style={styles.p}>Submit proof of payment or pay via gateway.</Text>
+        <Text style={styles.p}>{hasExistingProof ? 'Edit your submitted payment proof.' : 'Submit proof of payment.'}</Text>
 
         <View style={styles.section}>
           <Text style={styles.label}>Reference <Text style={styles.optional}>(optional)</Text></Text>

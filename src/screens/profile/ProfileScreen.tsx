@@ -19,6 +19,7 @@ export default function ProfileScreen() {
     String(
       user?.avatarUrl ||
         user?.avatar ||
+        user?.picture ||
         user?.profileImage ||
         user?.profilePic ||
         user?.profilePicture ||
@@ -58,7 +59,7 @@ export default function ProfileScreen() {
       setPhone(u?.phone || '');
       setAvatarUrl(
         String(
-          u?.avatarUrl || u?.avatar || u?.profileImage || u?.profilePic || u?.profilePicture || u?.photoUrl || u?.photo || u?.image || ''
+          u?.avatarUrl || u?.avatar || u?.picture || u?.profileImage || u?.profilePic || u?.profilePicture || u?.photoUrl || u?.photo || u?.image || ''
         )
       );
       setAvatarFailed(false);
@@ -82,6 +83,8 @@ export default function ProfileScreen() {
         name: name.trim(),
         email: email.trim(),
         phone: phone.trim() || undefined,
+        removePhoto: !resolvedAvatar,
+        picture: resolvedAvatar,
         avatarUrl: resolvedAvatar,
         avatar: resolvedAvatar,
         profileImage: resolvedAvatar,
@@ -91,7 +94,7 @@ export default function ProfileScreen() {
       const mergedUser = {
         ...(user || {}),
         ...((updated as any)?.user || updated || {}),
-        ...(resolvedAvatar ? { avatarUrl: resolvedAvatar, profileImage: resolvedAvatar, avatar: resolvedAvatar, photoUrl: resolvedAvatar } : {}),
+        ...(resolvedAvatar ? { picture: resolvedAvatar, avatarUrl: resolvedAvatar, profileImage: resolvedAvatar, avatar: resolvedAvatar, photoUrl: resolvedAvatar } : {}),
       };
       if (token) await signIn({ token, user: mergedUser as any });
       Alert.alert('Saved', 'Profile updated successfully.');

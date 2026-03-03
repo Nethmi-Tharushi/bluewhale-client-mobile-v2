@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -32,6 +32,19 @@ const openLocalFile = async (fileUri: string) => {
   } catch {
     throw new Error('Unable to open downloaded PDF on this device/emulator.');
   }
+};
+
+const shouldUseAuthenticatedDownload = (targetUrl: string) => {
+  const raw = String(targetUrl || '').trim();
+  if (!raw) return false;
+  if (!/^https?:\/\//i.test(raw)) return true;
+
+  const apiOrigin = API_BASE_URL.replace(/\/api$/i, '').replace(/\/$/, '').toLowerCase();
+  const absolute = toAbsoluteHttpUrl(raw).toLowerCase();
+  const sameApiOrigin = absolute.startsWith(apiOrigin);
+  const path = absolute.replace(/^https?:\/\/[^/]+/i, '');
+  const protectedPdfPath = /\/api\/(users\/(me\/)?invoices\/[^/]+\/pdf|invoices\/[^/]+\/pdf)/i.test(path);
+  return sameApiOrigin && protectedPdfPath;
 };
 
 type Props = NativeStackScreenProps<InvoicesStackParamList, 'InvoiceDetails'>;
@@ -77,33 +90,48 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
 
   const openPdf = async () => {
     try {
+      const openWithAuthDownload = async (targetUrl: string) => {
+        const token = (await getToken()) || useAuthStore.getState().token;
+        if (!token) throw new Error('Session expired. Please log out and log in again.');
+        const absoluteUrl = toAbsoluteHttpUrl(targetUrl);
+        if (!/^https?:\/\//i.test(absoluteUrl)) throw new Error('Invalid PDF URL returned by server.');
+
+        const targetPath = `${(FileSystem as any).cacheDirectory || ''}invoice-${invoiceId}.pdf`;
+        const result = await FileSystem.downloadAsync(absoluteUrl, targetPath, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (result.status < 200 || result.status >= 300) {
+          throw new Error(`PDF download failed (${result.status}).`);
+        }
+        await openLocalFile(result.uri);
+      };
+
       const localPdfUrl =
         (inv as any)?.pdfUrl || (inv as any)?.pdfURL || (inv as any)?.pdf || (inv as any)?.documentUrl || (inv as any)?.documentURL;
       if (localPdfUrl) {
-        await openExternalUrl(String(localPdfUrl));
+        if (shouldUseAuthenticatedDownload(String(localPdfUrl))) await openWithAuthDownload(String(localPdfUrl));
+        else await openExternalUrl(String(localPdfUrl));
         return;
       }
       const res = await InvoicesService.getPdfUrl(invoiceId).catch(() => null);
       const url = (res as any)?.url || (res as any)?.pdfUrl || (res as any)?.link;
       if (url) {
-        await openExternalUrl(String(url));
+        if (shouldUseAuthenticatedDownload(String(url))) await openWithAuthDownload(String(url));
+        else await openExternalUrl(String(url));
         return;
       }
 
       const token = (await getToken()) || useAuthStore.getState().token;
       if (!token) throw new Error('Session expired. Please log out and log in again.');
-      const endpoints = [`/users/invoices/${invoiceId}/pdf`, `/invoices/${invoiceId}/pdf`];
+      const endpoints = [`/users/invoices/${invoiceId}/pdf`, `/users/me/invoices/${invoiceId}/pdf`, `/invoices/${invoiceId}/pdf`];
       let downloaded = false;
       for (const endpoint of endpoints) {
-        const pdfUrl = toAbsoluteHttpUrl(endpoint);
-        const targetPath = `${(FileSystem as any).cacheDirectory || ''}invoice-${invoiceId}.pdf`;
-        const result = await FileSystem.downloadAsync(pdfUrl, targetPath, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (result.status >= 200 && result.status < 300) {
-          await openLocalFile(result.uri);
+        try {
+          await openWithAuthDownload(endpoint);
           downloaded = true;
           break;
+        } catch {
+          // Try next endpoint variant.
         }
       }
       if (!downloaded) throw new Error('PDF endpoint requires authenticated access and did not return a downloadable file.');
@@ -123,13 +151,22 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
   const statusText = String(inv?.status || (loading ? 'Loading...' : 'Sent'));
   const itemCount = Array.isArray(inv?.items) ? inv!.items!.length : 0;
   const hasProof = Boolean(
-    (inv as any)?.reference ||
+    (inv as any)?.hasPaymentProof ||
+      (inv as any)?.reference ||
       (inv as any)?.referenceNo ||
       (inv as any)?.paymentReference ||
       (inv as any)?.slipUrl ||
       (inv as any)?.slip_url ||
       (inv as any)?.paymentSlipUrl ||
       (inv as any)?.attachmentUrl ||
+      (inv as any)?.latestProof?.reference ||
+      (inv as any)?.latestProof?.referenceNo ||
+      (inv as any)?.latestProof?.paymentReference ||
+      (inv as any)?.latestProof?.proofUrl ||
+      (inv as any)?.latestProof?.slipUrl ||
+      (inv as any)?.latestProof?.slip_url ||
+      (inv as any)?.latestProof?.paymentSlipUrl ||
+      (inv as any)?.latestProof?.attachmentUrl ||
       (inv as any)?.paymentProof?.reference ||
       (inv as any)?.paymentProof?.referenceNo ||
       (inv as any)?.paymentProof?.paymentReference ||
@@ -220,7 +257,7 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
 
             <Pressable onPress={() => navigation.navigate('Payment', { invoiceId })} style={{ marginTop: 10 }}>
               <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.actionBtn}>
-                <Text style={[styles.actionBtnText, { fontFamily: t.typography.fontFamily.bold }]}>{hasProof ? 'Edit proof' : 'Pay / Submit proof'}</Text>
+                <Text style={[styles.actionBtnText, { fontFamily: t.typography.fontFamily.bold }]}>{hasProof ? 'Edit proof' : 'Submit proof'}</Text>
               </LinearGradient>
             </Pressable>
           </View>

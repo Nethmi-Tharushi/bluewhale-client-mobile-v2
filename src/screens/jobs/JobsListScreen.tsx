@@ -138,6 +138,7 @@ export default function JobsListScreen({ navigation }: Props) {
     const candidate = String(
       user?.avatarUrl ||
         user?.avatar ||
+        user?.picture ||
         user?.profileImage ||
         user?.profilePic ||
         user?.profilePicture ||
@@ -354,7 +355,15 @@ export default function JobsListScreen({ navigation }: Props) {
               {[
                 { key: 'Jobs', icon: 'briefcase' as const, active: true, action: () => navigation.getParent()?.navigate('Home' as never) },
                 { key: 'Applications', icon: 'file-text' as const, active: false, action: () => navigation.getParent()?.navigate('Jobs' as never) },
-                { key: 'Inquiries', icon: 'help-circle' as const, active: false, action: () => navigation.getParent()?.navigate('Inquiries' as never) },
+                {
+                  key: 'Inquiries',
+                  icon: 'help-circle' as const,
+                  active: false,
+                  action: () =>
+                    (navigation.getParent() as any)?.navigate('Inquiries', {
+                      screen: 'InquiryList',
+                    }),
+                },
               ].map((item) => (
                 <Pressable
                   key={item.key}

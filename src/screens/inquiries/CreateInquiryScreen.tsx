@@ -23,6 +23,10 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  React.useEffect(() => {
+    setJobId(route.params?.jobId || '');
+  }, [route.params?.jobId]);
+
   const pickAttachment = async () => {
     const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
     if (res.canceled) return;
@@ -59,6 +63,11 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
         message: message.trim(),
         attachmentUrl: attachmentUrl || undefined,
       });
+      setSubject('');
+      setCategory('General');
+      setMessage('');
+      setFileName(null);
+      setAttachmentUrl(null);
       Alert.alert('Sent', 'Your inquiry has been created.');
       navigation.goBack();
     } catch (e: any) {
