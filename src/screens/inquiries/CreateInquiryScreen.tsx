@@ -70,7 +70,7 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
 
   return (
     <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.headerWrap}>
           <Text style={[styles.h, { color: t.colors.primary }]}>Create Inquiry</Text>
           <Text style={[styles.p, { color: '#5E6F95' }]}>Message support/admin and track replies.</Text>
@@ -105,7 +105,8 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 130 },
+  scroll: { flex: 1 },
+  content: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 130 },
   headerWrap: { marginBottom: 10 },
   h: { fontSize: 28, fontWeight: '900' },
   p: { marginTop: 5, fontWeight: '700', fontSize: 16 },

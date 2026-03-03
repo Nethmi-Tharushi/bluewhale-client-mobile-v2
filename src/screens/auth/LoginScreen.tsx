@@ -50,6 +50,7 @@ export default function LoginScreen({ navigation }: Props) {
       <SafeAreaView style={styles.safe}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboard}>
           <ScrollView
+            style={styles.scroll}
             contentContainerStyle={[styles.scrollContent, { paddingBottom: compact ? 14 : 24 }]}
             showsVerticalScrollIndicator={false}
             bounces={false}
@@ -126,6 +127,7 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   safe: { flex: 1 },
   keyboard: { flex: 1 },
+  scroll: { flex: 1 },
   scrollContent: {
     flexGrow: 1,
     paddingBottom: 24,

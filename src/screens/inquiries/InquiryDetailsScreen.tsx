@@ -44,7 +44,7 @@ export default function InquiryDetailsScreen({ route }: Props) {
 
   return (
     <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.headerWrap}>
           <Text style={[styles.pageTitle, { color: t.colors.primary }]}>Inquiry Details</Text>
           <Text style={styles.pageSub}>Track your inquiry and replies from support</Text>
@@ -92,7 +92,8 @@ export default function InquiryDetailsScreen({ route }: Props) {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 130 },
+  scroll: { flex: 1 },
+  content: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 130 },
   headerWrap: { marginBottom: 10 },
   pageTitle: { fontSize: 28, fontWeight: '900' },
   pageSub: { marginTop: 4, color: '#5E6F95', fontWeight: '700', fontSize: 16 },
