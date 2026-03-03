@@ -3,6 +3,12 @@ import { Endpoints } from './endpoints';
 import { getToken } from '../utils/tokenStorage';
 import type { Application, ChatAdmin, ChatMessage, Inquiry, Invoice, Job } from '../types/models';
 
+type UploadableFile = {
+  uri: string;
+  name: string;
+  type?: string;
+};
+
 // ---- helpers ----
 const unwrap = <T,>(res: any): T => {
   // backend may return {data}, {items}, {result} etc
@@ -448,6 +454,9 @@ export const InvoicesService = {
       }
     }
     if (lastErr) throw lastErr;
+    const list = await InvoicesService.list().catch(() => []);
+    const matched = (Array.isArray(list) ? list : []).find((item: any) => String(item?._id || item?.id) === String(invoiceId));
+    if (matched) return normalizeInvoice(matched);
     throw new Error('Invoice not found in response');
   },
   async getPdfUrl(invoiceId: string) {
@@ -492,26 +501,70 @@ export const InvoicesService = {
     }
     throw new Error('Unable to get invoice PDF URL');
   },
-  async markPaid(invoiceId: string, payload?: any) {
+  async markPaid(invoiceId: string, payload?: { reference?: string; notes?: string; slipUrl?: string; file?: UploadableFile } | any) {
     const endpoints = Array.from(
       new Set([
+        `/users/invoices/${invoiceId}/payment-proof`,
+        `/users/me/invoices/${invoiceId}/payment-proof`,
         `/users/invoices/${invoiceId}/mark-paid`,
         `/users/me/invoices/${invoiceId}/mark-paid`,
         `/invoices/${invoiceId}/mark-paid`,
       ])
     );
+    const reference = String(payload?.reference || '').trim();
+    const notes = String(payload?.notes || '').trim();
+    const slipUrl = String(payload?.slipUrl || '').trim();
     const body = {
       ...(payload || {}),
-      reference: payload?.reference,
-      referenceNo: payload?.reference,
-      slipUrl: payload?.slipUrl,
-      slip_url: payload?.slipUrl,
-      paymentSlipUrl: payload?.slipUrl,
-      attachmentUrl: payload?.slipUrl,
+      reference: reference || undefined,
+      referenceNo: reference || undefined,
+      paymentReference: reference || undefined,
+      notes: notes || (slipUrl ? `Slip URL: ${slipUrl}` : undefined),
+      slipUrl: slipUrl || undefined,
+      slip_url: slipUrl || undefined,
+      paymentSlipUrl: slipUrl || undefined,
+      attachmentUrl: slipUrl || undefined,
     };
     let lastErr: any;
+    const file: UploadableFile | undefined =
+      payload?.file && payload.file.uri
+        ? {
+            uri: payload.file.uri,
+            name: payload.file.name || `payment-proof-${Date.now()}.jpg`,
+            type: payload.file.type || 'application/octet-stream',
+          }
+        : undefined;
+
+    const fileFieldCandidates = ['paymentSlip', 'slip', 'proof', 'file', 'document', 'image'];
+
+    const submitMultipart = async (endpoint: string) => {
+      if (!file) return null;
+      for (const field of fileFieldCandidates) {
+        const form = new FormData();
+        if (reference) form.append('reference', reference);
+        if (notes) form.append('notes', notes);
+        // @ts-ignore react-native FormData file type
+        form.append(field, { uri: file.uri, name: file.name, type: file.type });
+        try {
+          const res = await api.post(endpoint, form, {
+            headers: { Accept: 'application/json' },
+            timeout: 60000,
+          });
+          return unwrap<any>(res);
+        } catch (err: any) {
+          const status = Number(err?.response?.status || 0);
+          if (!status) throw err;
+          lastErr = err;
+        }
+      }
+      return null;
+    };
+
     for (const endpoint of endpoints) {
       try {
+        const multipartResult = await submitMultipart(endpoint);
+        if (multipartResult) return multipartResult;
+
         const res = await api.post(endpoint, body);
         return unwrap<any>(res);
       } catch (err: any) {

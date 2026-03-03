@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Alert, Linking, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { Badge, Button, Card, Screen } from '../../components/ui';
 import { Spacing } from '../../constants/theme';
 import { InvoicesService } from '../../api/services';
@@ -33,6 +33,40 @@ const openLocalFile = async (fileUri: string) => {
   }
 };
 
+const isProtectedApiPdfUrl = (url: string) => {
+  const v = String(url || '').trim().toLowerCase();
+  return v.includes('/api/users/invoices/') || v.includes('/api/invoices/');
+};
+
+const getProofSnapshot = (invoice: any) => {
+  if (!invoice || typeof invoice !== 'object') {
+    return { hasProof: false, reference: '', notes: '' };
+  }
+
+  const directReference = String(
+    invoice?.reference || invoice?.paymentReference || invoice?.referenceNo || invoice?.latestProof?.reference || ''
+  ).trim();
+  const directNotes = String(invoice?.notes || invoice?.latestProof?.notes || '').trim();
+
+  const payments = Array.isArray(invoice?.payments) ? invoice.payments : [];
+  const latestPayment = payments.length ? payments[payments.length - 1] : null;
+  const paymentReference = String(
+    latestPayment?.reference || latestPayment?.paymentReference || latestPayment?.referenceNo || ''
+  ).trim();
+  const paymentNotes = String(latestPayment?.notes || '').trim();
+  const paymentProofUrl = String(
+    latestPayment?.proofUrl || latestPayment?.paymentSlipUrl || latestPayment?.slipUrl || ''
+  ).trim();
+
+  const directProofUrl = String(invoice?.proofUrl || invoice?.paymentSlipUrl || invoice?.slipUrl || invoice?.latestProof?.proofUrl || '').trim();
+
+  const reference = directReference || paymentReference;
+  const notes = directNotes || paymentNotes;
+  const hasProof = !!(invoice?.hasPaymentProof || reference || notes || paymentProofUrl || directProofUrl || invoice?.latestProof);
+
+  return { hasProof, reference, notes };
+};
+
 type Props = NativeStackScreenProps<InvoicesStackParamList, 'InvoiceDetails'>;
 
 export default function InvoiceDetailsScreen({ navigation, route }: Props) {
@@ -40,6 +74,7 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
   const { invoiceId, invoice: initialInvoice } = route.params;
   const [inv, setInv] = useState<Invoice | null>(initialInvoice || null);
   const [loading, setLoading] = useState(true);
+  const proofSnapshot = getProofSnapshot(inv);
 
   useEffect(() => {
     (async () => {
@@ -76,33 +111,51 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
 
   const openPdf = async () => {
     try {
+      const token = (await getToken()) || useAuthStore.getState().token;
+      if (!token) throw new Error('Session expired. Please log out and log in again.');
+
+      const downloadAuthenticatedPdf = async (targetUrl: string) => {
+        const pdfUrl = toAbsoluteHttpUrl(targetUrl);
+        const targetPath = `${(FileSystem as any).cacheDirectory || ''}invoice-${invoiceId}.pdf`;
+        const result = await FileSystem.downloadAsync(pdfUrl, targetPath, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (result.status < 200 || result.status >= 300) {
+          throw new Error(`PDF download failed (HTTP ${result.status})`);
+        }
+        await openLocalFile(result.uri);
+      };
+
       const localPdfUrl =
         (inv as any)?.pdfUrl || (inv as any)?.pdfURL || (inv as any)?.pdf || (inv as any)?.documentUrl || (inv as any)?.documentURL;
       if (localPdfUrl) {
-        await openExternalUrl(String(localPdfUrl));
+        if (isProtectedApiPdfUrl(String(localPdfUrl))) {
+          await downloadAuthenticatedPdf(String(localPdfUrl));
+        } else {
+          await openExternalUrl(String(localPdfUrl));
+        }
         return;
       }
       const res = await InvoicesService.getPdfUrl(invoiceId).catch(() => null);
       const url = (res as any)?.url || (res as any)?.pdfUrl || (res as any)?.link;
       if (url) {
-        await openExternalUrl(String(url));
+        if (isProtectedApiPdfUrl(String(url))) {
+          await downloadAuthenticatedPdf(String(url));
+        } else {
+          await openExternalUrl(String(url));
+        }
         return;
       }
 
-      const token = (await getToken()) || useAuthStore.getState().token;
-      if (!token) throw new Error('Session expired. Please log out and log in again.');
       const endpoints = [`/users/invoices/${invoiceId}/pdf`, `/invoices/${invoiceId}/pdf`];
       let downloaded = false;
       for (const endpoint of endpoints) {
-        const pdfUrl = toAbsoluteHttpUrl(endpoint);
-        const targetPath = `${(FileSystem as any).cacheDirectory || ''}invoice-${invoiceId}.pdf`;
-        const result = await FileSystem.downloadAsync(pdfUrl, targetPath, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (result.status >= 200 && result.status < 300) {
-          await openLocalFile(result.uri);
+        try {
+          await downloadAuthenticatedPdf(endpoint);
           downloaded = true;
           break;
+        } catch {
+          // Try next endpoint variant.
         }
       }
       if (!downloaded) throw new Error('PDF endpoint requires authenticated access and did not return a downloadable file.');
@@ -142,7 +195,18 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
           <View style={{ height: 16 }} />
           <Button title="View / Download PDF" onPress={openPdf} />
           <View style={{ height: 10 }} />
-          <Button title="Pay / Submit proof" variant="secondary" onPress={() => navigation.navigate('Payment', { invoiceId })} />
+          <Button
+            title={proofSnapshot.hasProof ? 'Edit proof' : 'Pay / Submit proof'}
+            variant="secondary"
+            onPress={() =>
+              navigation.navigate('Payment', {
+                invoiceId,
+                hasProof: proofSnapshot.hasProof,
+                existingReference: proofSnapshot.reference || undefined,
+                existingNotes: proofSnapshot.notes || undefined,
+              })
+            }
+          />
         </Card>
       </ScrollView>
     </Screen>

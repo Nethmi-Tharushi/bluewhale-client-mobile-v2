@@ -3,7 +3,7 @@ import { Alert, Linking, StyleSheet, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as WebBrowser from 'expo-web-browser';
 import { Button, Card, Input, Screen } from '../../components/ui';
-import { InvoicesService, UploadService } from '../../api/services';
+import { InvoicesService } from '../../api/services';
 import { API_BASE_URL } from '../../config/api';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InvoicesStackParamList } from '../../navigation/app/AppNavigator';
@@ -13,12 +13,12 @@ type Props = NativeStackScreenProps<InvoicesStackParamList, 'Payment'>;
 
 export default function PaymentScreen({ navigation, route }: Props) {
   const t = useTheme();
-  const { invoiceId } = route.params;
+  const { invoiceId, hasProof = false, existingReference = '', existingNotes = '' } = route.params;
 
-  const [reference, setReference] = useState('');
+  const [reference, setReference] = useState(existingReference);
+  const [notes, setNotes] = useState(existingNotes);
   const [slipName, setSlipName] = useState<string | null>(null);
-  const [slipUrl, setSlipUrl] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
+  const [slipFile, setSlipFile] = useState<{ uri: string; name: string; type?: string } | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
   const pickSlip = async () => {
@@ -29,29 +29,27 @@ export default function PaymentScreen({ navigation, route }: Props) {
     });
     if (res.canceled) return;
     const file = res.assets[0];
-    setUploading(true);
-    try {
-      const uploaded = await UploadService.uploadFile({ uri: file.uri, name: file.name, type: file.mimeType || 'application/octet-stream' });
-      const url = (uploaded as any)?.url || (uploaded as any)?.fileUrl || (uploaded as any)?.path;
-      if (!url) throw new Error('Upload response did not include a URL.');
-      setSlipUrl(url);
-      setSlipName(file.name);
-    } catch (e: any) {
-      Alert.alert('Upload failed', e?.userMessage || e?.message || 'Please try again');
-    } finally {
-      setUploading(false);
-    }
+    setSlipName(file.name);
+    setSlipFile({
+      uri: file.uri,
+      name: file.name || `payment-slip-${Date.now()}`,
+      type: file.mimeType || 'application/octet-stream',
+    });
   };
 
   const submitProof = async () => {
-    if (!reference.trim() && !slipUrl) {
-      Alert.alert('Missing proof', 'Please add a reference number and/or upload a slip.');
+    if (!reference.trim() && !notes.trim() && !slipFile) {
+      Alert.alert('Missing proof', 'Please add reference, notes, or a payment slip.');
       return;
     }
     setSubmitting(true);
     try {
-      await InvoicesService.markPaid(invoiceId, { reference: reference.trim() || undefined, slipUrl: slipUrl || undefined });
-      Alert.alert('Submitted', 'Payment proof submitted. Status will update after verification.');
+      await InvoicesService.markPaid(invoiceId, {
+        reference: reference.trim() || undefined,
+        notes: notes.trim() || undefined,
+        file: slipFile || undefined,
+      });
+      Alert.alert(hasProof ? 'Updated' : 'Submitted', hasProof ? 'Payment proof updated.' : 'Payment proof submitted. Status will update after verification.');
       navigation.goBack();
     } catch (e: any) {
       Alert.alert('Failed', e?.userMessage || e?.message || 'Please try again');
@@ -87,19 +85,22 @@ export default function PaymentScreen({ navigation, route }: Props) {
   return (
     <Screen>
       <Card>
-        <Text style={[styles.h, { color: t.colors.primary }]}>Payment</Text>
-        <Text style={[styles.p, { color: t.colors.textMuted }]}>Submit proof or continue with payment gateway.</Text>
+        <Text style={[styles.h, { color: t.colors.primary }]}>{hasProof ? 'Edit payment proof' : 'Payment'}</Text>
+        <Text style={[styles.p, { color: t.colors.textMuted }]}>
+          {hasProof ? 'Update your previously submitted proof details.' : 'Submit proof or continue with payment gateway.'}
+        </Text>
 
         <View style={{ height: 12 }} />
         <Input label="Reference (optional)" value={reference} onChangeText={setReference} placeholder="Bank ref / Payment ref" />
+        <Input label="Notes (optional)" value={notes} onChangeText={setNotes} placeholder="Any extra payment details" multiline />
 
         <Text style={[styles.label, { color: t.colors.text }]}>Payment slip (optional)</Text>
-        <Text style={[styles.file, { color: t.colors.text }]}>{slipName || 'No file selected'}</Text>
+        <Text style={[styles.file, { color: t.colors.text }]}>{slipName || (hasProof ? 'Previously submitted slip' : 'No file selected')}</Text>
         <View style={{ height: 10 }} />
-        <Button title={uploading ? 'Uploading...' : 'Upload slip'} onPress={pickSlip} loading={uploading} />
+        <Button title={hasProof ? 'Replace slip' : 'Choose slip'} onPress={pickSlip} />
 
         <View style={{ height: 14 }} />
-        <Button title={submitting ? 'Submitting...' : 'Submit proof'} onPress={submitProof} loading={submitting} />
+        <Button title={submitting ? (hasProof ? 'Updating...' : 'Submitting...') : hasProof ? 'Update proof' : 'Submit proof'} onPress={submitProof} loading={submitting} />
 
         <View style={{ height: 10 }} />
         <Button title="Pay via gateway (optional)" variant="ghost" onPress={openGateway} />

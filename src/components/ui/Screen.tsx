@@ -1,6 +1,5 @@
 import React from 'react';
 import { KeyboardAvoidingView, Platform, StatusBar, StyleSheet, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/ThemeProvider';
 
@@ -21,9 +20,9 @@ export default function Screen({
   );
 
   return (
-    <LinearGradient colors={t.colors.gradientBackground as any} style={styles.root}>
+    <View style={[styles.root, { backgroundColor: t.colors.background }]}>
       <StatusBar barStyle={t.isDark ? 'light-content' : 'dark-content'} />
-      <SafeAreaView style={styles.safe} edges={['left', 'right']}>
+      <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
         {header}
         {keyboard ? (
           <KeyboardAvoidingView style={styles.safe} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -33,7 +32,7 @@ export default function Screen({
           content
         )}
       </SafeAreaView>
-    </LinearGradient>
+    </View>
   );
 }
 
