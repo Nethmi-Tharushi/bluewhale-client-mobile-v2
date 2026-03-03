@@ -169,7 +169,7 @@ export default function ProfileScreen() {
 
   return (
     <Screen>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.hero}>
           <View style={[styles.avatarWrap, { borderColor: '#C0CFEA', backgroundColor: '#F8FAFF' }]}>
             {effectiveAvatarUrl && !avatarFailed ? (
@@ -237,7 +237,8 @@ export default function ProfileScreen() {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingBottom: 140, paddingTop: 10 },
+  scroll: { flex: 1 },
+  content: { flexGrow: 1, paddingBottom: 140, paddingTop: 10 },
   hero: {
     borderRadius: 24,
     paddingHorizontal: 18,

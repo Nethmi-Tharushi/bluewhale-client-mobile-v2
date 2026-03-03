@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, Image, ImageSourcePropType, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChatService } from '../../api/services';
 import type { ChatAdmin } from '../../types/models';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -50,7 +51,7 @@ export default function ChatListScreen({ navigation }: Props) {
   }, []);
 
   return (
-    <View style={styles.root}>
+    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
       <FlatList
         style={styles.list}
         contentContainerStyle={styles.listContent}
@@ -69,7 +70,7 @@ export default function ChatListScreen({ navigation }: Props) {
         ListHeaderComponent={
           <View style={styles.titleBlock}>
             <Text style={[styles.heading, { color: '#27439C' }]}>Chat Support</Text>
-            <Text style={[styles.sub, { color: '#5E6F95' }]}>Talk to your assigned admin</Text>
+            <Text style={[styles.sub, { color: '#5E6F95' }]}>Talk with your support admin</Text>
           </View>
         }
         ListEmptyComponent={
@@ -115,68 +116,68 @@ export default function ChatListScreen({ navigation }: Props) {
           </View>
         )}
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#D9E0EE' },
+  root: { flex: 1, backgroundColor: '#EEF3FB' },
   list: { flex: 1 },
-  listContent: { paddingHorizontal: 18, paddingTop: 16, paddingBottom: 150 },
-  titleBlock: { marginBottom: 8, paddingHorizontal: 6 },
-  heading: { fontSize: 56 / 2, fontWeight: '900', letterSpacing: 0.2 },
-  sub: { marginTop: 8, fontWeight: '700', fontSize: 22 / 2 * 1.8 },
+  listContent: { paddingHorizontal: 16, paddingTop: 0, paddingBottom: 130 },
+  titleBlock: { marginTop: 30, marginBottom: 6, paddingHorizontal: 2 },
+  heading: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: 0.2 },
+  sub: { marginTop: 4, fontWeight: '700', fontSize: 14, lineHeight: 20 },
   outerCard: {
-    marginTop: 16,
-    borderRadius: 26,
-    backgroundColor: 'rgba(255,255,255,0.76)',
-    borderWidth: 1.5,
-    borderColor: '#C8D5EE',
-    padding: 14,
-    shadowColor: '#3D5EA8',
-    shadowOpacity: 0.14,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
+    marginTop: 12,
+    borderRadius: 22,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#D5DEF3',
+    padding: 12,
+    shadowColor: '#5F82BA',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
   innerCard: {
-    borderRadius: 22,
-    borderWidth: 1.5,
-    borderColor: '#C4D0E8',
-    padding: 16,
-    backgroundColor: 'rgba(255,255,255,0.42)',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#D3DEF3',
+    padding: 12,
+    backgroundColor: '#F8FAFC',
   },
-  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 14 },
+  row: { flexDirection: 'row', alignItems: 'center', marginBottom: 10 },
   avatarWrap: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
+    width: 58,
+    height: 58,
+    borderRadius: 29,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
   avatarImage: { width: '100%', height: '100%' },
-  meta: { marginLeft: 14, flex: 1 },
-  name: { fontSize: 21 / 1.2, fontWeight: '900' },
-  email: { marginTop: 4, fontSize: 18 / 1.15, fontWeight: '700', color: '#5C6E92' },
+  meta: { marginLeft: 12, flex: 1 },
+  name: { fontSize: 16, lineHeight: 21, fontWeight: '900' },
+  email: { marginTop: 3, fontSize: 13, lineHeight: 17, fontWeight: '700', color: '#5C6E92' },
   chatButtonWrap: { width: '100%' },
   chatButton: {
-    minHeight: 42,
+    minHeight: 40,
     borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 12,
   },
-  chatButtonText: { color: '#F4FAFF', fontSize: 17, lineHeight: 21, fontWeight: '800' },
+  chatButtonText: { color: '#F4FAFF', fontSize: 15, lineHeight: 19, fontWeight: '800' },
   emptyCard: {
-    marginTop: 26,
-    borderRadius: 18,
+    marginTop: 22,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#C6D2E8',
     backgroundColor: 'rgba(255,255,255,0.66)',
-    padding: 18,
+    padding: 14,
   },
-  emptyTitle: { color: '#263966', fontWeight: '800', fontSize: 18, marginBottom: 4 },
-  emptyBody: { color: '#5C6E92', fontSize: 14, fontWeight: '600' },
+  emptyTitle: { color: '#263966', fontWeight: '800', fontSize: 16, marginBottom: 4 },
+  emptyBody: { color: '#5C6E92', fontSize: 13, lineHeight: 18, fontWeight: '600' },
 });
 

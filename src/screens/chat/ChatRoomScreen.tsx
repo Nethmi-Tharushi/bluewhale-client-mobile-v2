@@ -2,6 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Alert, FlatList, Image, KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Feather } from '@expo/vector-icons';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ChatService, UploadService } from '../../api/services';
 import type { ChatMessage } from '../../types/models';
 import { useAuthStore } from '../../context/authStore';
@@ -43,8 +45,9 @@ const isMessageMine = (item: any, myId: string) => {
   return item?.isMine === true || item?.mine === true || item?.fromMe === true || item?.isUser === true;
 };
 
-export default function ChatRoomScreen({ route }: Props) {
+export default function ChatRoomScreen({ route, navigation }: Props) {
   const t = useTheme();
+  const insets = useSafeAreaInsets();
   const { adminId, title, adminEmail, adminRole } = route.params;
   const user = useAuthStore((s) => s.user);
   const myId = norm(user?._id || user?.id);
@@ -63,7 +66,8 @@ export default function ChatRoomScreen({ route }: Props) {
     try {
       const res = await ChatService.messagesWithAdmin(adminId);
       const list = Array.isArray(res) ? res : (res as any)?.messages || [];
-      list.sort((a: any, b: any) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime());
+      // Inverted list expects newest items first to show latest message at the bottom.
+      list.sort((a: any, b: any) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime());
       setMessages(list);
     } catch {
       // ignore
@@ -126,9 +130,12 @@ export default function ChatRoomScreen({ route }: Props) {
   };
 
   return (
-    <View style={styles.root}>
+    <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <View style={styles.contactCard}>
+          <Pressable onPress={() => navigation.goBack()} style={styles.backBtn} hitSlop={8}>
+            <Feather name="arrow-left" size={20} color="#1A347F" />
+          </Pressable>
           <Image source={avatarSource} style={styles.avatar} />
           <View style={styles.contactMeta}>
             <Text style={styles.contactName}>{title || 'Sales User'}</Text>
@@ -139,11 +146,18 @@ export default function ChatRoomScreen({ route }: Props) {
             </View>
           </View>
         </View>
-        <FlatList data={messages} keyExtractor={(it: any, idx) => it._id || `${idx}`} renderItem={renderItem} contentContainerStyle={styles.messagesContent} />
-        <View style={styles.composer}>
+        <FlatList
+          data={messages}
+          keyExtractor={(it: any, idx) => it._id || `${idx}`}
+          renderItem={renderItem}
+          inverted
+          contentContainerStyle={[styles.messagesContent, { paddingTop: insets.bottom + 170, paddingBottom: 12 }]}
+          showsVerticalScrollIndicator={false}
+        />
+        <View style={[styles.composer, { bottom: insets.bottom + 96 }]}>
           <View style={styles.composerCard}>
             <Pressable onPress={attach} disabled={uploading || sending} style={styles.attachBtn}>
-              <Text style={styles.attachText}>{uploading ? '...' : '+'}</Text>
+              <Feather name="paperclip" size={18} color="#2F78D7" />
             </Pressable>
             <View style={styles.inputWrap}>
               <TextInput value={text} onChangeText={setText} placeholder="Type a message..." placeholderTextColor="#5D6F96" style={styles.input} />
@@ -156,71 +170,81 @@ export default function ChatRoomScreen({ route }: Props) {
           </View>
         </View>
       </KeyboardAvoidingView>
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#D9E0EE' },
+  root: { flex: 1, backgroundColor: '#EEF3FB' },
   contactCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderBottomWidth: 1,
-    borderBottomColor: '#C9D5EC',
-    backgroundColor: 'rgba(255,255,255,0.38)',
+    borderBottomColor: '#D5DEF3',
+    backgroundColor: '#F8FAFC',
   },
-  avatar: { width: 102, height: 102, borderRadius: 51 },
-  contactMeta: { marginLeft: 14, flex: 1 },
-  contactName: { color: '#111D3E', fontSize: 25 / 1.2, fontWeight: '900' },
-  contactEmail: { color: '#5B6E95', fontSize: 18 / 1.15, fontWeight: '700', marginTop: 6 },
-  onlineRow: { marginTop: 8, flexDirection: 'row', alignItems: 'center' },
-  onlineDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: '#5CC463', marginRight: 8 },
-  onlineText: { color: '#5B6E95', fontWeight: '700', fontSize: 18 / 1.2 },
-  messagesContent: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 200 },
-  bubbleWrap: { marginBottom: 12 },
-  bubble: { maxWidth: '62%', paddingHorizontal: 16, paddingVertical: 14, borderRadius: 22, borderWidth: 1 },
+  backBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAF2FF',
+    borderWidth: 1,
+    borderColor: '#D5DEF3',
+    marginRight: 10,
+  },
+  avatar: { width: 54, height: 54, borderRadius: 27 },
+  contactMeta: { marginLeft: 10, flex: 1 },
+  contactName: { color: '#111D3E', fontSize: 16, lineHeight: 20, fontWeight: '900' },
+  contactEmail: { color: '#5B6E95', fontSize: 12, lineHeight: 16, fontWeight: '700', marginTop: 2 },
+  onlineRow: { marginTop: 4, flexDirection: 'row', alignItems: 'center' },
+  onlineDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#5CC463', marginRight: 6 },
+  onlineText: { color: '#5B6E95', fontWeight: '700', fontSize: 12, lineHeight: 16 },
+  messagesContent: { paddingHorizontal: 14, paddingTop: 10 },
+  bubbleWrap: { marginBottom: 8 },
+  bubble: { maxWidth: '72%', paddingHorizontal: 12, paddingVertical: 10, borderRadius: 16, borderWidth: 1 },
   mine: { borderColor: 'rgba(255,255,255,0.2)', borderTopRightRadius: 14 },
-  theirs: { borderColor: '#B9C9E8', borderTopLeftRadius: 14 },
-  bubbleText: { fontWeight: '800', lineHeight: 24, fontSize: 20 / 1.3 },
-  attachment: { marginTop: 8, fontWeight: '800', fontSize: 12 },
-  time: { marginTop: 8, fontWeight: '700', fontSize: 14 / 1.2 },
+  theirs: { borderColor: '#D5DEF3', borderTopLeftRadius: 14 },
+  bubbleText: { fontWeight: '700', lineHeight: 20, fontSize: 14 },
+  attachment: { marginTop: 6, fontWeight: '700', fontSize: 11 },
+  time: { marginTop: 6, fontWeight: '700', fontSize: 11 },
   composer: { position: 'absolute', left: 14, right: 14, bottom: 110 },
   composerCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 10,
-    borderRadius: 28,
-    borderWidth: 1.5,
-    borderColor: '#C9D5EA',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    shadowColor: '#4A68A8',
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 7,
+    padding: 8,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#D5DEF3',
+    backgroundColor: '#F8FAFC',
+    shadowColor: '#5F82BA',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 2,
   },
-  attachBtn: { width: 58, height: 58, borderRadius: 18, backgroundColor: '#D5DEEB', alignItems: 'center', justifyContent: 'center', marginRight: 10 },
-  attachText: { color: '#2F78D7', fontWeight: '900', fontSize: 38 / 1.3, marginTop: -2 },
+  attachBtn: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#D5DEEB', alignItems: 'center', justifyContent: 'center', marginRight: 8 },
   inputWrap: {
     flex: 1,
-    minHeight: 58,
-    borderRadius: 20,
+    minHeight: 44,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: '#CAD4E7',
     backgroundColor: '#F7F8FC',
     justifyContent: 'center',
   },
-  input: { paddingHorizontal: 18, paddingVertical: 12, fontWeight: '700', fontSize: 17, color: '#334A7D' },
-  sendBtnWrap: { marginLeft: 10 },
+  input: { paddingHorizontal: 14, paddingVertical: 10, fontWeight: '600', fontSize: 14, color: '#334A7D' },
+  sendBtnWrap: { marginLeft: 8 },
   sendBtn: {
-    minWidth: 86,
-    height: 42,
-    borderRadius: 11,
+    minWidth: 68,
+    height: 40,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 18,
+    paddingHorizontal: 14,
   },
-  sendText: { color: 'white', fontWeight: '800', fontSize: 17, lineHeight: 21 },
+  sendText: { color: 'white', fontWeight: '800', fontSize: 14, lineHeight: 18 },
 });

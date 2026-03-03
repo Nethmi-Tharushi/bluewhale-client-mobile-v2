@@ -50,7 +50,7 @@ export default function RegisterScreen({ navigation }: Props) {
     <LinearGradient colors={t.colors.gradientBackground as any} style={styles.root}>
       <SafeAreaView style={styles.safe}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboard}>
-          <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} bounces={false}>
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false} bounces={false}>
             <View style={styles.hero}>
               <View style={styles.logoHalo} />
               <View style={styles.logoPlateOuter}>
@@ -141,7 +141,9 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   safe: { flex: 1 },
   keyboard: { flex: 1 },
+  scroll: { flex: 1 },
   scrollContent: {
+    flexGrow: 1,
     paddingBottom: 22,
   },
   hero: {

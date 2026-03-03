@@ -4,7 +4,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as FileSystem from 'expo-file-system';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { InvoicesService } from '../../api/services';
 import { getToken } from '../../utils/tokenStorage';
 import { useAuthStore } from '../../context/authStore';
@@ -38,7 +38,6 @@ type Props = NativeStackScreenProps<InvoicesStackParamList, 'InvoiceDetails'>;
 
 export default function InvoiceDetailsScreen({ navigation, route }: Props) {
   const t = useTheme();
-  const insets = useSafeAreaInsets();
   const { invoiceId, invoice: initialInvoice } = route.params;
   const [inv, setInv] = useState<Invoice | null>(initialInvoice || null);
   const [loading, setLoading] = useState(true);
@@ -123,15 +122,31 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
   const totalText = money(inv?.total, inv?.currency || 'USD');
   const statusText = String(inv?.status || (loading ? 'Loading...' : 'Sent'));
   const itemCount = Array.isArray(inv?.items) ? inv!.items!.length : 0;
+  const hasProof = Boolean(
+    (inv as any)?.reference ||
+      (inv as any)?.referenceNo ||
+      (inv as any)?.paymentReference ||
+      (inv as any)?.slipUrl ||
+      (inv as any)?.slip_url ||
+      (inv as any)?.paymentSlipUrl ||
+      (inv as any)?.attachmentUrl ||
+      (inv as any)?.paymentProof?.reference ||
+      (inv as any)?.paymentProof?.referenceNo ||
+      (inv as any)?.paymentProof?.paymentReference ||
+      (inv as any)?.paymentProof?.slipUrl ||
+      (inv as any)?.paymentProof?.slip_url ||
+      (inv as any)?.paymentProof?.paymentSlipUrl ||
+      (inv as any)?.paymentProof?.attachmentUrl
+  );
 
   return (
     <LinearGradient colors={t.colors.gradientBackground as any} style={styles.root}>
       <SafeAreaView style={styles.safe}>
-        <ScrollView contentContainerStyle={[styles.content, { paddingTop: Math.max(8, insets.top + 4), paddingBottom: 150 }]}>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <View style={styles.headerWrap}>
             <View style={styles.headerTopRow}>
               <Pressable onPress={onBack} style={styles.backBtn}>
-                <Feather name="arrow-left" size={34} color="#1A347F" />
+                <Feather name="arrow-left" size={24} color="#1A347F" />
               </Pressable>
               <Text style={[styles.heading, { fontFamily: t.typography.fontFamily.bold }]}>Invoice Details</Text>
               <View style={styles.bellWrap}>
@@ -149,7 +164,7 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
 
             <View style={styles.mainInfoRow}>
               <View style={styles.docIconWrap}>
-                <Feather name="file-text" size={38} color="#5EA1E4" />
+                <Feather name="file-text" size={26} color="#5EA1E4" />
               </View>
 
               <View style={{ flex: 1 }}>
@@ -205,7 +220,7 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
 
             <Pressable onPress={() => navigation.navigate('Payment', { invoiceId })} style={{ marginTop: 10 }}>
               <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.actionBtn}>
-                <Text style={[styles.actionBtnText, { fontFamily: t.typography.fontFamily.bold }]}>Pay / Submit proof</Text>
+                <Text style={[styles.actionBtnText, { fontFamily: t.typography.fontFamily.bold }]}>{hasProof ? 'Edit proof' : 'Pay / Submit proof'}</Text>
               </LinearGradient>
             </Pressable>
           </View>
@@ -218,30 +233,35 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   safe: { flex: 1 },
+  scroll: { flex: 1 },
   content: {
     paddingHorizontal: 16,
+    paddingTop: 8,
+    paddingBottom: 150,
+    flexGrow: 1,
   },
   headerWrap: {
-    marginBottom: 14,
+    marginBottom: 10,
   },
   headerTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   backBtn: {
-    width: 52,
+    width: 40,
     alignItems: 'flex-start',
+    justifyContent: 'center',
   },
   heading: {
     flex: 1,
     color: '#1A347F',
-    fontSize: 24,
-    lineHeight: 30,
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: '900',
   },
   bellWrap: {
-    width: 52,
-    height: 52,
+    width: 40,
+    height: 40,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -255,22 +275,22 @@ const styles = StyleSheet.create({
     backgroundColor: '#FF8085',
   },
   card: {
-    marginBottom: 14,
+    marginBottom: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#D8E3F7',
-    borderRadius: 30,
-    padding: 16,
-    shadowColor: '#6E89BB',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16,
-    shadowRadius: 14,
-    elevation: 5,
+    borderColor: '#D5DEF3',
+    borderRadius: 22,
+    padding: 14,
+    shadowColor: '#5F82BA',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2,
   },
   invoiceTitle: {
     color: '#1A347F',
-    fontSize: 19,
-    lineHeight: 24,
+    fontSize: 18,
+    lineHeight: 22,
     fontWeight: '900',
   },
   invoiceDue: {
@@ -285,9 +305,9 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   docIconWrap: {
-    width: 90,
-    height: 90,
-    borderRadius: 20,
+    width: 62,
+    height: 62,
+    borderRadius: 14,
     backgroundColor: '#EAF2FF',
     borderWidth: 1,
     borderColor: '#D6E3F8',
@@ -303,8 +323,8 @@ const styles = StyleSheet.create({
   },
   statusPill: {
     borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderWidth: 1.5,
     borderColor: '#F1C37A',
     backgroundColor: '#F9EED7',
@@ -312,8 +332,8 @@ const styles = StyleSheet.create({
   },
   statusText: {
     color: '#D47A09',
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '900',
   },
   mainDivider: {
@@ -328,14 +348,14 @@ const styles = StyleSheet.create({
   },
   totalLabel: {
     color: '#4E5D81',
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 16,
+    lineHeight: 21,
     fontWeight: '900',
   },
   totalValue: {
     color: '#18243F',
-    fontSize: 18,
-    lineHeight: 24,
+    fontSize: 16,
+    lineHeight: 21,
     fontWeight: '900',
   },
   mainDividerStrong: {
@@ -353,20 +373,20 @@ const styles = StyleSheet.create({
     width: '48%',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#D3E0F6',
-    backgroundColor: '#EEF4FE',
+    borderColor: '#CDDCF7',
+    backgroundColor: '#EDF4FF',
     paddingHorizontal: 10,
     paddingVertical: 8,
   },
   detailLabel: {
-    color: '#637792',
+    color: '#234287',
     fontSize: 12,
     lineHeight: 16,
     fontWeight: '600',
   },
   detailValue: {
     marginTop: 2,
-    color: '#1A347F',
+    color: '#0C1E4F',
     fontSize: 14,
     lineHeight: 18,
     fontWeight: '800',
@@ -381,8 +401,8 @@ const styles = StyleSheet.create({
   },
   actionBtnText: {
     color: '#FFFFFF',
-    fontSize: 17,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: '800',
   },
 });

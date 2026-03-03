@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { EmptyState } from '../../components/ui';
 import { InvoicesService } from '../../api/services';
 import type { Invoice } from '../../types/models';
@@ -15,7 +15,6 @@ type Props = NativeStackScreenProps<InvoicesStackParamList, 'InvoicesList'>;
 
 export default function InvoicesListScreen({ navigation }: Props) {
   const t = useTheme();
-  const insets = useSafeAreaInsets();
   const [items, setItems] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -43,7 +42,7 @@ export default function InvoicesListScreen({ navigation }: Props) {
     <LinearGradient colors={t.colors.gradientBackground as any} style={styles.root}>
       <SafeAreaView style={styles.safe}>
         <FlatList
-          contentContainerStyle={[styles.content, { paddingTop: Math.max(8, insets.top + 4), paddingBottom: 130 }]}
+          contentContainerStyle={styles.content}
           data={items}
           keyExtractor={(it, idx) => (it as any)?._id || (it as any)?.id || (it as any)?.invoiceNumber || String(idx)}
           refreshControl={
@@ -56,21 +55,9 @@ export default function InvoicesListScreen({ navigation }: Props) {
               }}
             />
           }
-          ListHeaderComponent={
-            <View style={styles.headerWrap}>
-              <View style={styles.headerTopRow}>
-                <Pressable
-                  style={styles.backBtn}
-                  onPress={() => {
-                    if (navigation.canGoBack()) navigation.goBack();
-                    else navigation.getParent()?.navigate('Home' as never);
-                  }}
-                >
-                  <Feather name="arrow-left" size={34} color="#1A347F" />
-                </Pressable>
-                <Text style={[styles.heading, { fontFamily: t.typography.fontFamily.bold }]}>Invoices</Text>
-                
-              </View>
+        ListHeaderComponent={
+          <View style={styles.headerWrap}>
+              <Text style={[styles.heading, { fontFamily: t.typography.fontFamily.bold }]}>Invoices</Text>
               <Text style={[styles.sub, { fontFamily: t.typography.fontFamily.medium }]}>Due dates, totals, and payment status</Text>
             </View>
           }
@@ -89,7 +76,7 @@ export default function InvoicesListScreen({ navigation }: Props) {
                 <View style={styles.innerCard}>
                   <View style={styles.rowTop}>
                     <View style={styles.docIconWrap}>
-                      <Feather name="file-text" size={34} color="#5EA1E4" />
+                      <Feather name="file-text" size={24} color="#5EA1E4" />
                     </View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
                       <Text style={[styles.invoiceTitle, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
@@ -127,24 +114,17 @@ const styles = StyleSheet.create({
   safe: { flex: 1 },
   content: {
     paddingHorizontal: 16,
+    paddingTop: 0,
+    paddingBottom: 130,
   },
   headerWrap: {
-    marginBottom: 16,
-  },
-  headerTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  backBtn: {
-    width: 52,
-    alignItems: 'flex-start',
+    marginTop: 30,
+    marginBottom: 12,
   },
   heading: {
-    flex: 1,
     color: '#1A347F',
-    fontSize: 26,
-    lineHeight: 32,
+    fontSize: 24,
+    lineHeight: 30,
     fontWeight: '900',
   },
   bellWrap: {
@@ -164,28 +144,28 @@ const styles = StyleSheet.create({
   },
   sub: {
     color: '#475A83',
-    fontSize: 16,
-    lineHeight: 22,
-    fontWeight: '600',
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '700',
   },
   outerCard: {
-    marginBottom: 14,
+    marginBottom: 12,
     backgroundColor: '#F8FAFC',
     borderWidth: 1,
-    borderColor: '#D8E3F7',
-    borderRadius: 34,
-    padding: 14,
-    shadowColor: '#6E89BB',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.16,
-    shadowRadius: 14,
-    elevation: 5,
+    borderColor: '#D5DEF3',
+    borderRadius: 22,
+    padding: 12,
+    shadowColor: '#5F82BA',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2,
   },
   innerCard: {
-    borderWidth: 1.5,
-    borderColor: '#C8D6F2',
-    borderRadius: 26,
-    padding: 14,
+    borderWidth: 1,
+    borderColor: '#D3DEF3',
+    borderRadius: 16,
+    padding: 10,
     backgroundColor: '#F8FAFC',
   },
   rowTop: {
@@ -193,9 +173,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   docIconWrap: {
-    width: 70,
-    height: 70,
-    borderRadius: 16,
+    width: 52,
+    height: 52,
+    borderRadius: 12,
     backgroundColor: '#EEF4FE',
     borderWidth: 1,
     borderColor: '#D6E3F8',
@@ -204,8 +184,8 @@ const styles = StyleSheet.create({
   },
   invoiceTitle: {
     color: '#1A2238',
-    fontSize: 16,
-    lineHeight: 22,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: '900',
   },
   invoiceDue: {
@@ -217,23 +197,23 @@ const styles = StyleSheet.create({
   },
   statusPill: {
     borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderWidth: 1.5,
     borderColor: '#F1C37A',
     backgroundColor: '#F9EED7',
   },
   statusText: {
     color: '#D47A09',
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '900',
   },
   amount: {
-    marginTop: 12,
+    marginTop: 10,
     color: '#1667B7',
-    fontSize: 24,
-    lineHeight: 30,
+    fontSize: 20,
+    lineHeight: 26,
     fontWeight: '900',
   },
   divider: {
@@ -242,7 +222,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#D7E2F5',
   },
   openBtn: {
-    height: 52,
+    height: 46,
     borderRadius: 11,
     alignItems: 'center',
     justifyContent: 'center',
@@ -251,8 +231,8 @@ const styles = StyleSheet.create({
   },
   openBtnText: {
     color: '#FFFFFF',
-    fontSize: 17,
-    lineHeight: 21,
+    fontSize: 15,
+    lineHeight: 19,
     fontWeight: '800',
   },
 });
