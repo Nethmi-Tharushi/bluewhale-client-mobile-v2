@@ -7,6 +7,7 @@ import { api } from '../../api/client';
 import { useAuthStore } from '../../context/authStore';
 import { useTheme } from '../../theme/ThemeProvider';
 import { Feather } from '@expo/vector-icons';
+import { isValidUaeMobile, normalizeUaeMobile, UAE_PHONE_EXAMPLE } from '../../utils/phone';
 
 export default function ProfileScreen() {
   const t = useTheme();
@@ -19,6 +20,7 @@ export default function ProfileScreen() {
     String(
       user?.avatarUrl ||
         user?.avatar ||
+        user?.picture ||
         user?.profileImage ||
         user?.profilePic ||
         user?.profilePicture ||
@@ -58,7 +60,7 @@ export default function ProfileScreen() {
       setPhone(u?.phone || '');
       setAvatarUrl(
         String(
-          u?.avatarUrl || u?.avatar || u?.profileImage || u?.profilePic || u?.profilePicture || u?.photoUrl || u?.photo || u?.image || ''
+          u?.avatarUrl || u?.avatar || u?.picture || u?.profileImage || u?.profilePic || u?.profilePicture || u?.photoUrl || u?.photo || u?.image || ''
         )
       );
       setAvatarFailed(false);
@@ -77,11 +79,18 @@ export default function ProfileScreen() {
   const save = async () => {
     setSaving(true);
     try {
+      const normalizedPhone = normalizeUaeMobile(phone);
+      if (phone.trim() && !isValidUaeMobile(phone)) {
+        Alert.alert('Invalid phone', `Use UAE mobile format like ${UAE_PHONE_EXAMPLE} or 05XXXXXXXX.`);
+        return;
+      }
       const resolvedAvatar = avatarUrl.trim() || undefined;
       const updated = await AuthService.updateProfile({
         name: name.trim(),
         email: email.trim(),
-        phone: phone.trim() || undefined,
+        phone: normalizedPhone || undefined,
+        removePhoto: !resolvedAvatar,
+        picture: resolvedAvatar,
         avatarUrl: resolvedAvatar,
         avatar: resolvedAvatar,
         profileImage: resolvedAvatar,
@@ -91,7 +100,7 @@ export default function ProfileScreen() {
       const mergedUser = {
         ...(user || {}),
         ...((updated as any)?.user || updated || {}),
-        ...(resolvedAvatar ? { avatarUrl: resolvedAvatar, profileImage: resolvedAvatar, avatar: resolvedAvatar, photoUrl: resolvedAvatar } : {}),
+        ...(resolvedAvatar ? { picture: resolvedAvatar, avatarUrl: resolvedAvatar, profileImage: resolvedAvatar, avatar: resolvedAvatar, photoUrl: resolvedAvatar } : {}),
       };
       if (token) await signIn({ token, user: mergedUser as any });
       Alert.alert('Saved', 'Profile updated successfully.');
@@ -210,7 +219,7 @@ export default function ProfileScreen() {
           <View style={{ height: 6 }} />
           <Input label="Name" value={name} onChangeText={setName} placeholder="Your name" />
           <Input label="Email" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" />
-          <Input label="Phone" value={phone} onChangeText={setPhone} placeholder="07X XXX XXXX" keyboardType="phone-pad" />
+          <Input label="Phone" value={phone} onChangeText={setPhone} placeholder={UAE_PHONE_EXAMPLE} keyboardType="phone-pad" />
           <Button title={saving ? 'Saving...' : 'Save changes'} onPress={save} loading={saving} />
         </View>
 

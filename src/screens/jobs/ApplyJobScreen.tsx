@@ -59,7 +59,7 @@ export default function ApplyJobScreen({ navigation, route }: Props) {
       await ApplicationsService.apply(jobId, { note: note.trim() || undefined, cvUrl });
       Alert.alert('Submitted', 'Your application has been submitted successfully.');
       navigation.popToTop();
-      (navigation.getParent() as any)?.navigate('Applications');
+      (navigation.getParent() as any)?.navigate('Jobs');
     } catch (e: any) {
       Alert.alert('Submit failed', e?.userMessage || e?.message || 'Please try again');
     } finally {

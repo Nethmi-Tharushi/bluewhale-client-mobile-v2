@@ -1,11 +1,26 @@
 {
+  "cli": {
+    "version": ">= 10.0.0"
+  },
   "build": {
-    "production": {
-      "android": { "buildType": "app-bundle" },
-      "ios": {}
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
     },
-    "preview-apk": {
-      "android": { "buildType": "apk" }
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      }
+    },
+    "production": {
+      "android": {
+        "buildType": "app-bundle"
+      },
+      "ios": {}
     }
+  },
+  "submit": {
+    "production": {}
   }
 }

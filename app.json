@@ -17,10 +17,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.bluewhale.client",
-      "buildNumber": "2",
-      "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
-      }
+      "buildNumber": "1"
     },
     "android": {
       "adaptiveIcon": {
@@ -28,12 +25,12 @@
         "backgroundColor": "#0b1220"
       },
       "package": "com.bluewhale.client",
-      "versionCode": 2
+      "versionCode": 1
     },
     "plugins": [],
     "extra": {
       "eas": {
-        "projectId": "bb7d0ca5-06b9-4d24-8558-2330c6dde797"
+        "projectId": "568f19b1-0f28-46c7-904b-1f4739307842"
       }
     },
     "owner": "neth_tharu"

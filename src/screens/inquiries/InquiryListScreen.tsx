@@ -57,7 +57,7 @@ export default function InquiryListScreen({ navigation }: Props) {
             <Text style={[styles.heading, { color: '#1B3890' }]}>My Inquiries</Text>
             <Text style={[styles.sub, { color: '#5E6F95' }]}>Questions and support updates</Text>
             <View style={styles.createWrap}>
-              <Button title="Create inquiry" onPress={() => navigation.navigate('CreateInquiry', {})} />
+              <Button title="Create inquiry" onPress={() => navigation.push('CreateInquiry', { jobId: '' })} />
             </View>
           </View>
         }
@@ -103,42 +103,42 @@ export default function InquiryListScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 130 },
   headerWrap: { marginBottom: Spacing.sm },
-  heading: { fontSize: 28, fontWeight: '900' },
-  sub: { marginTop: 4, fontWeight: '700', fontSize: 16 },
-  createWrap: { marginTop: 12 },
+  heading: { fontSize: 23, fontWeight: '900' },
+  sub: { marginTop: 3, fontWeight: '700', fontSize: 14 },
+  createWrap: { marginTop: 10 },
   outerCard: {
-    marginBottom: 12,
-    borderRadius: 26,
+    marginBottom: 10,
+    borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.76)',
-    borderWidth: 1.5,
+    borderWidth: 1.2,
     borderColor: '#C8D5EE',
-    padding: 12,
+    padding: 10,
     shadowColor: '#3D5EA8',
-    shadowOpacity: 0.14,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 5,
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 3,
   },
   innerCard: {
-    borderRadius: 20,
-    borderWidth: 1.5,
+    borderRadius: 16,
+    borderWidth: 1.2,
     borderColor: '#C4D0E8',
     backgroundColor: 'rgba(255,255,255,0.5)',
-    padding: 14,
+    padding: 12,
   },
   topRow: { flexDirection: 'row', alignItems: 'center' },
   iconWrap: {
-    width: 54,
-    height: 54,
-    borderRadius: 14,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#C9D8F0',
     backgroundColor: '#EAF2FF',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { fontSize: 20, fontWeight: '900' },
-  metaText: { marginTop: 3, color: '#5C6E92', fontSize: 14, fontWeight: '700' },
-  message: { marginTop: 10, color: '#2A3B61', fontSize: 15, lineHeight: 21, fontWeight: '600' },
+  title: { fontSize: 17, fontWeight: '900' },
+  metaText: { marginTop: 2, color: '#5C6E92', fontSize: 12, fontWeight: '700' },
+  message: { marginTop: 8, color: '#2A3B61', fontSize: 13, lineHeight: 18, fontWeight: '600' },
 });
 
