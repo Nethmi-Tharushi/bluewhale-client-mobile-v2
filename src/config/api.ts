@@ -18,15 +18,17 @@ const resolvedOrigin = (() => {
   // Always honor explicit env override first.
   if (envOrigin) return envOrigin;
 
+  // Production APK/IPA should never default to LAN or emulator hosts.
+  if (!__DEV__) return RENDER_FALLBACK_ORIGIN;
+
   // Emulator/simulator defaults when no env is provided.
   if (Platform.OS === 'android') return androidEmulatorOrigin;
   if (Platform.OS === 'ios') return iosSimulatorOrigin;
 
-  // Expo Go on physical device: prefer deployed API when env is missing.
-  if (Constants.appOwnership === 'expo') return RENDER_FALLBACK_ORIGIN;
+  // Expo Go on physical device local-network fallback.
+  if (Constants.appOwnership === 'expo') return physicalFallbackOrigin;
 
-  // Physical-device local fallback.
-  return physicalFallbackOrigin;
+  return RENDER_FALLBACK_ORIGIN;
 })();
 
 export const SOCKET_URL = resolvedOrigin;
