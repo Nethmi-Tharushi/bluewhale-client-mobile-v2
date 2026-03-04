@@ -57,12 +57,12 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                   </View>
                 </View>
               </View>
-              <Text style={[styles.title, { fontFamily: t.typography.fontFamily.bold }]}>Reset password</Text>
-              <Text style={[styles.sub, { fontFamily: t.typography.fontFamily.medium }]}>We will email reset instructions</Text>
+              <Text style={styles.title}>Reset password</Text>
+              <Text style={styles.sub}>We will email reset instructions</Text>
             </View>
 
             <View style={[styles.formCard, { marginHorizontal: cardHorizontal }]}>
-              <Text style={[styles.label, { fontFamily: t.typography.fontFamily.bold }]}>Email</Text>
+              <Text style={styles.label}>Email</Text>
               <View style={styles.inputRow}>
                 <Feather name="mail" size={24} color="#4D95DE" />
                 <TextInput
@@ -72,18 +72,18 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                   placeholderTextColor="#7A8BA1"
                   keyboardType="email-address"
                   autoCapitalize="none"
-                  style={[styles.inputText, { fontFamily: t.typography.fontFamily.medium }]}
+                  style={styles.inputText}
                 />
               </View>
 
               <Pressable onPress={onSubmit} disabled={loading} style={({ pressed }) => [pressed && { opacity: 0.96 }]}>
                 <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.primaryBtn}>
-                  <Text style={[styles.primaryBtnText, { fontFamily: t.typography.fontFamily.bold }]}>{loading ? 'Sending...' : 'Send reset email'}</Text>
+                  <Text style={styles.primaryBtnText}>{loading ? 'Sending...' : 'Send reset email'}</Text>
                 </LinearGradient>
               </Pressable>
 
               <Pressable onPress={() => navigation.goBack()} style={({ pressed }) => [styles.secondaryBtn, pressed && { opacity: 0.9 }]}>
-                <Text style={[styles.secondaryBtnText, { fontFamily: t.typography.fontFamily.bold }]}>Back</Text>
+                <Text style={styles.secondaryBtnText}>Back</Text>
               </Pressable>
             </View>
           </ScrollView>
@@ -250,3 +250,4 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 });
+

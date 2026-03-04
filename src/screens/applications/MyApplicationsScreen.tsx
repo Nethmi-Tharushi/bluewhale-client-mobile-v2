@@ -89,10 +89,21 @@ export default function MyApplicationsScreen() {
         ListHeaderComponent={
           <View style={{ marginBottom: Spacing.sm }}>
             <View style={styles.headerBox}>
-              <Text style={[styles.heading, { color: '#1B3890', fontFamily: t.typography.fontFamily.bold }]}>My Applications</Text>
-              <Text style={[styles.sub, { color: '#6B7F96', fontFamily: t.typography.fontFamily.medium }]}>
-                Track applied jobs and your saved opportunities
-              </Text>
+              <View style={styles.headerRow}>
+                <Pressable
+                  onPress={() => navigation.canGoBack() && navigation.goBack()}
+                  style={[styles.backBtn, !navigation.canGoBack() && styles.backBtnHidden]}
+                  disabled={!navigation.canGoBack()}
+                >
+                  <Feather name="arrow-left" size={18} color="#1B3890" />
+                </Pressable>
+                <View style={styles.headerTextWrap}>
+                  <Text style={[styles.heading, { color: '#1B3890', fontFamily: t.typography.fontFamily.bold }]}>My Applications</Text>
+                  <Text style={[styles.sub, { color: '#6B7F96', fontFamily: t.typography.fontFamily.medium }]}>
+                    Track applied jobs and your saved opportunities
+                  </Text>
+                </View>
+              </View>
             </View>
 
             <View style={styles.tabShell}>
@@ -234,15 +245,29 @@ const styles = StyleSheet.create({
     marginTop: 30,
     marginBottom: 12,
   },
+  headerRow: { flexDirection: 'row', alignItems: 'center' },
+  backBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAF2FF',
+    borderWidth: 1,
+    borderColor: '#C9D8F0',
+    marginRight: 8,
+  },
+  backBtnHidden: { opacity: 0 },
+  headerTextWrap: { flex: 1 },
   heading: {
-    fontSize: 26,
-    lineHeight: 32,
+    fontSize: 22,
+    lineHeight: 28,
     fontWeight: '900',
   },
   sub: {
     marginTop: 4,
-    fontSize: 16,
-    lineHeight: 24,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '600',
   },
   tabShell: {
@@ -271,8 +296,8 @@ const styles = StyleSheet.create({
     borderColor: '#1B3890',
   },
   tabText: {
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '800',
     color: '#214D98',
   },
@@ -308,15 +333,15 @@ const styles = StyleSheet.create({
   },
   title: {
     color: '#112B73',
-    fontSize: 18,
-    lineHeight: 23,
+    fontSize: 16,
+    lineHeight: 20,
     fontWeight: '900',
   },
   company: {
     marginTop: 3,
     color: '#637792',
-    fontSize: 15,
-    lineHeight: 20,
+    fontSize: 13,
+    lineHeight: 17,
     fontWeight: '600',
   },
   statusPill: {
@@ -369,8 +394,8 @@ const styles = StyleSheet.create({
   metaText: {
     marginLeft: 6,
     color: '#2B4A81',
-    fontSize: 14,
-    lineHeight: 18,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: '600',
     flex: 1,
   },
@@ -393,8 +418,8 @@ const styles = StyleSheet.create({
   },
   actionOutlineText: {
     color: '#2170C7',
-    fontSize: 16,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: '800',
   },
   actionFilled: {
@@ -407,8 +432,8 @@ const styles = StyleSheet.create({
   },
   actionFilledText: {
     color: '#FFFFFF',
-    fontSize: 16,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: '800',
   },
   appliedBtn: {
@@ -425,8 +450,8 @@ const styles = StyleSheet.create({
   },
   appliedBtnText: {
     color: '#118A4A',
-    fontSize: 16,
-    lineHeight: 21,
+    fontSize: 14,
+    lineHeight: 18,
     fontWeight: '800',
   },
 });

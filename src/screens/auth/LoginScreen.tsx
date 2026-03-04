@@ -21,6 +21,8 @@ export default function LoginScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const compact = height < 760;
   const cardHorizontal = width < 380 ? 14 : 20;
+  const logoWidth = compact ? Math.min(width * 0.62, 230) : Math.min(width * 0.68, 250);
+  const logoHeight = Math.round(logoWidth * 0.43);
 
   const onLogin = async () => {
     if (!email.trim() || !password) {
@@ -51,16 +53,19 @@ export default function LoginScreen({ navigation }: Props) {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.keyboard}>
           <ScrollView
             style={styles.scroll}
-            contentContainerStyle={[styles.scrollContent, { paddingBottom: compact ? 14 : 24 }]}
+            contentContainerStyle={[
+              styles.scrollContent,
+              {
+                paddingBottom: compact ? 14 : 24,
+              },
+            ]}
             showsVerticalScrollIndicator={false}
             bounces={false}
           >
             <View style={[styles.hero, compact && styles.heroCompact]}>
               <View style={styles.logoHalo} />
-              <View style={[styles.logoPlateOuter, compact && styles.logoPlateOuterCompact]}>
-                <View style={[styles.logoPlateInner, compact && styles.logoPlateInnerCompact]}>
-                  <Image source={require('../../../assets/icon.png')} style={[styles.brandMark, compact && styles.brandMarkCompact]} resizeMode="contain" />
-                </View>
+              <View style={[styles.logoWrap, { width: logoWidth, height: logoHeight }]}>
+                <Image source={require('../../../assets/blue-whale-logo.webp')} style={[styles.brandMark, { width: logoWidth, height: logoHeight }]} resizeMode="contain" />
               </View>
               <Text style={[styles.title, compact && styles.titleCompact]}>Welcome back</Text>
               <Text style={[styles.sub, compact && styles.subCompact]}>Sign in to continue your journey</Text>
@@ -134,12 +139,12 @@ const styles = StyleSheet.create({
   },
   hero: {
     alignItems: 'center',
-    paddingTop: 6,
-    paddingBottom: 12,
+    paddingTop: 40,
+    paddingBottom: 10,
   },
   heroCompact: {
     paddingTop: 4,
-    paddingBottom: 10,
+    paddingBottom: 8,
   },
   logoHalo: {
     position: 'absolute',
@@ -149,50 +154,23 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.24)',
     top: -4,
   },
-  logoPlateOuter: {
-    width: 156,
-    height: 156,
-    borderRadius: 28,
-    backgroundColor: '#F9FBFF',
+  logoWrap: {
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#7BA2DE',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.23,
-    shadowRadius: 18,
-    elevation: 8,
+    marginTop: 4,
   },
-  logoPlateOuterCompact: {
-    width: 138,
-    height: 138,
-    borderRadius: 24,
-  },
-  logoPlateInner: {
-    width: 124,
-    height: 124,
-    borderRadius: 22,
-    backgroundColor: '#DDEBFD',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  logoPlateInnerCompact: {
-    width: 108,
-    height: 108,
-    borderRadius: 19,
-  },
-  brandMark: { width: 92, height: 92 },
-  brandMarkCompact: { width: 80, height: 80 },
+  brandMark: {},
   title: {
-    marginTop: 18,
+    marginTop: 22,
     fontSize: 30,
     lineHeight: 36,
     fontWeight: '900',
     color: '#1B3890',
   },
   titleCompact: {
-    marginTop: 14,
-    fontSize: 26,
-    lineHeight: 31,
+    marginTop: 10,
+    fontSize: 24,
+    lineHeight: 29,
   },
   sub: {
     marginTop: 8,
@@ -203,13 +181,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   subCompact: {
-    marginTop: 6,
+    marginTop: 10,
     fontSize: 14,
     lineHeight: 19,
   },
   formCard: {
-    marginTop: 12,
-    marginHorizontal: 20,
+    marginTop: 10,
+    marginHorizontal: 24,
     backgroundColor: '#F8FAFC',
     borderRadius: 20,
     paddingHorizontal: 16,
@@ -221,8 +199,8 @@ const styles = StyleSheet.create({
     elevation: 7,
   },
   formCardCompact: {
-    marginTop: 8,
-    paddingVertical: 12,
+    marginTop: 6,
+    paddingVertical: 10,
   },
   label: {
     color: '#111827',

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { FlatList, Image, ImageSourcePropType, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Feather } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { ChatService } from '../../api/services';
 import type { ChatAdmin } from '../../types/models';
@@ -69,8 +70,19 @@ export default function ChatListScreen({ navigation }: Props) {
         }
         ListHeaderComponent={
           <View style={styles.titleBlock}>
-            <Text style={[styles.heading, { color: '#27439C' }]}>Chat Support</Text>
-            <Text style={[styles.sub, { color: '#5E6F95' }]}>Talk with your support admin</Text>
+            <View style={styles.headerRow}>
+              <Pressable
+                onPress={() => navigation.canGoBack() && navigation.goBack()}
+                style={[styles.backBtn, !navigation.canGoBack() && styles.backBtnHidden]}
+                disabled={!navigation.canGoBack()}
+              >
+                <Feather name="arrow-left" size={18} color="#27439C" />
+              </Pressable>
+              <View style={styles.headerTextWrap}>
+                <Text style={[styles.heading, { color: '#27439C' }]}>Chat Support</Text>
+                <Text style={[styles.sub, { color: '#5E6F95' }]}>Talk with your support admin</Text>
+              </View>
+            </View>
           </View>
         }
         ListEmptyComponent={
@@ -125,6 +137,20 @@ const styles = StyleSheet.create({
   list: { flex: 1 },
   listContent: { paddingHorizontal: 16, paddingTop: 0, paddingBottom: 130 },
   titleBlock: { marginTop: 30, marginBottom: 6, paddingHorizontal: 2 },
+  headerRow: { flexDirection: 'row', alignItems: 'center' },
+  backBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAF2FF',
+    borderWidth: 1,
+    borderColor: '#C9D8F0',
+    marginRight: 8,
+  },
+  backBtnHidden: { opacity: 0 },
+  headerTextWrap: { flex: 1 },
   heading: { fontSize: 24, lineHeight: 30, fontWeight: '900', letterSpacing: 0.2 },
   sub: { marginTop: 4, fontWeight: '700', fontSize: 14, lineHeight: 20 },
   outerCard: {

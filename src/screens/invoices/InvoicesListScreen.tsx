@@ -57,8 +57,19 @@ export default function InvoicesListScreen({ navigation }: Props) {
           }
         ListHeaderComponent={
           <View style={styles.headerWrap}>
-              <Text style={[styles.heading, { fontFamily: t.typography.fontFamily.bold }]}>Invoices</Text>
-              <Text style={[styles.sub, { fontFamily: t.typography.fontFamily.medium }]}>Due dates, totals, and payment status</Text>
+              <View style={styles.headerRow}>
+                <Pressable
+                  onPress={() => navigation.canGoBack() && navigation.goBack()}
+                  style={[styles.backBtn, !navigation.canGoBack() && styles.backBtnHidden]}
+                  disabled={!navigation.canGoBack()}
+                >
+                  <Feather name="arrow-left" size={18} color="#1A347F" />
+                </Pressable>
+                <View style={styles.headerTextWrap}>
+                  <Text style={[styles.heading, { fontFamily: t.typography.fontFamily.bold }]}>Invoices</Text>
+                  <Text style={[styles.sub, { fontFamily: t.typography.fontFamily.medium }]}>Due dates, totals, and payment status</Text>
+                </View>
+              </View>
             </View>
           }
           ListEmptyComponent={
@@ -121,6 +132,20 @@ const styles = StyleSheet.create({
     marginTop: 30,
     marginBottom: 12,
   },
+  headerRow: { flexDirection: 'row', alignItems: 'center' },
+  backBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAF2FF',
+    borderWidth: 1,
+    borderColor: '#C9D8F0',
+    marginRight: 8,
+  },
+  backBtnHidden: { opacity: 0 },
+  headerTextWrap: { flex: 1 },
   heading: {
     color: '#1A347F',
     fontSize: 24,

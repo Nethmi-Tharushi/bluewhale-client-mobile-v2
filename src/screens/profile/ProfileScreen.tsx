@@ -203,11 +203,12 @@ export default function ProfileScreen() {
 
           <Text style={[styles.label, { color: t.colors.text }]}>Profile photo</Text>
           <View style={styles.photoRow}>
-            <Button title={uploadingPhoto ? 'Uploading...' : 'Upload photo'} onPress={pickAndUploadPhoto} loading={uploadingPhoto} />
+            <Button title={uploadingPhoto ? 'Uploading...' : 'Upload photo'} onPress={pickAndUploadPhoto} loading={uploadingPhoto} size="sm" />
             <View style={{ width: 10 }} />
             <Button
               title="Remove photo"
               variant="outline"
+              size="sm"
               onPress={() => {
                 setAvatarUrl('');
                 setAvatarFailed(false);
@@ -220,7 +221,7 @@ export default function ProfileScreen() {
           <Input label="Name" value={name} onChangeText={setName} placeholder="Your name" />
           <Input label="Email" value={email} onChangeText={setEmail} placeholder="you@example.com" keyboardType="email-address" />
           <Input label="Phone" value={phone} onChangeText={setPhone} placeholder={UAE_PHONE_EXAMPLE} keyboardType="phone-pad" />
-          <Button title={saving ? 'Saving...' : 'Save changes'} onPress={save} loading={saving} />
+          <Button title={saving ? 'Saving...' : 'Save changes'} onPress={save} loading={saving} size="sm" />
         </View>
 
         <View style={styles.section}>
@@ -229,16 +230,16 @@ export default function ProfileScreen() {
           <View style={{ height: 12 }} />
           <Input label="Current password" value={currentPassword} onChangeText={setCurrentPassword} placeholder="Enter current password" secureTextEntry />
           <Input label="New password" value={newPassword} onChangeText={setNewPassword} placeholder="Minimum 6 characters" secureTextEntry />
-          <Button title={changing ? 'Updating...' : 'Change password'} onPress={changePass} loading={changing} />
+          <Button title={changing ? 'Updating...' : 'Change password'} onPress={changePass} loading={changing} size="sm" />
         </View>
 
         <View style={styles.section}>
           <Text style={[styles.h, { color: t.colors.primary }]}>Account Actions</Text>
           <Text style={styles.p}>Sign out or permanently remove account</Text>
           <View style={{ height: 12 }} />
-          <Button title="Logout" onPress={() => signOut()} variant="secondary" />
+          <Button title="Logout" onPress={() => signOut()} variant="secondary" size="sm" />
           <View style={{ height: 10 }} />
-          <Button title="Delete account" onPress={confirmDelete} variant="ghost" />
+          <Button title="Delete account" onPress={confirmDelete} variant="ghost" size="sm" />
         </View>
       </ScrollView>
     </Screen>
@@ -258,9 +259,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  heroName: { marginTop: 12, fontSize: 26, fontWeight: '900' },
-  heroEmail: { marginTop: 6, fontSize: 16, fontWeight: '700', color: '#5B6E95' },
-  heroSub: { marginTop: 6, fontSize: 14, fontWeight: '700', color: '#7384A8' },
+  heroName: { marginTop: 12, fontSize: 20, fontWeight: '900' },
+  heroEmail: { marginTop: 6, fontSize: 14, fontWeight: '700', color: '#5B6E95' },
+  heroSub: { marginTop: 6, fontSize: 12, fontWeight: '700', color: '#7384A8' },
   section: {
     borderRadius: 22,
     padding: 16,
@@ -274,7 +275,7 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 4 },
     elevation: 4,
   },
-  h: { fontSize: 22, fontWeight: '900' },
+  h: { fontSize: 18, fontWeight: '900' },
   p: { marginTop: 6, fontWeight: '700', color: '#6B7FA8' },
   label: { fontWeight: '800', marginBottom: 8 },
   photoRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 8 },
@@ -289,3 +290,4 @@ const styles = StyleSheet.create({
   },
   avatarImage: { width: '100%', height: '100%' },
 });
+

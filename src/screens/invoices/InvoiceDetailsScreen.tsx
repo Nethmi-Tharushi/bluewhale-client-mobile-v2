@@ -186,10 +186,7 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
                 <Feather name="arrow-left" size={24} color="#1A347F" />
               </Pressable>
               <Text style={[styles.heading, { fontFamily: t.typography.fontFamily.bold }]}>Invoice Details</Text>
-              <View style={styles.bellWrap}>
-                <Feather name="bell" size={30} color="#455B87" />
-                <View style={styles.bellDot} />
-              </View>
+              
             </View>
           </View>
 

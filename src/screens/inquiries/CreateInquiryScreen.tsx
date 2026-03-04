@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { Feather } from '@expo/vector-icons';
 import { Button, Card, Input, Screen } from '../../components/ui';
@@ -12,9 +12,9 @@ type Props = NativeStackScreenProps<InquiryStackParamList, 'CreateInquiry'>;
 
 export default function CreateInquiryScreen({ navigation, route }: Props) {
   const t = useTheme();
-  const jobIdFromRoute = route.params?.jobId;
+  const routeJobId = typeof route.params?.jobId === 'string' ? route.params.jobId.trim() : '';
 
-  const [jobId, setJobId] = useState(jobIdFromRoute || '');
+  const [jobId, setJobId] = useState(routeJobId);
   const [subject, setSubject] = useState('');
   const [category, setCategory] = useState('General');
   const [message, setMessage] = useState('');
@@ -24,8 +24,9 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
   const [submitting, setSubmitting] = useState(false);
 
   React.useEffect(() => {
-    setJobId(route.params?.jobId || '');
-  }, [route.params?.jobId]);
+    // Always sync form state with latest route param.
+    setJobId(routeJobId || '');
+  }, [routeJobId]);
 
   const pickAttachment = async () => {
     const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
@@ -68,6 +69,7 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
       setMessage('');
       setFileName(null);
       setAttachmentUrl(null);
+      setJobId('');
       Alert.alert('Sent', 'Your inquiry has been created.');
       navigation.goBack();
     } catch (e: any) {
@@ -81,8 +83,19 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
     <Screen padded={false}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.headerWrap}>
-          <Text style={[styles.h, { color: t.colors.primary }]}>Create Inquiry</Text>
-          <Text style={[styles.p, { color: '#5E6F95' }]}>Message support/admin and track replies.</Text>
+          <View style={styles.headerRow}>
+            <Pressable
+              onPress={() => navigation.canGoBack() && navigation.goBack()}
+              style={[styles.backBtn, !navigation.canGoBack() && styles.backBtnHidden]}
+              disabled={!navigation.canGoBack()}
+            >
+              <Feather name="arrow-left" size={18} color="#1B3890" />
+            </Pressable>
+            <View style={styles.headerTextWrap}>
+              <Text style={[styles.h, { color: t.colors.primary }]}>Create Inquiry</Text>
+              <Text style={[styles.p, { color: '#5E6F95' }]}>Message support/admin and track replies.</Text>
+            </View>
+          </View>
         </View>
 
         <Card style={styles.formCard}>
@@ -102,11 +115,11 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
               </Text>
             </View>
             <View style={{ height: 10 }} />
-            <Button title={uploading ? 'Uploading...' : 'Upload attachment'} onPress={pickAttachment} loading={uploading} />
+            <Button size="sm" title={uploading ? 'Uploading...' : 'Upload attachment'} onPress={pickAttachment} loading={uploading} />
           </View>
 
           <View style={{ height: 14 }} />
-          <Button title={submitting ? 'Submitting...' : 'Submit inquiry'} onPress={submit} loading={submitting} />
+          <Button size="sm" title={submitting ? 'Submitting...' : 'Submit inquiry'} onPress={submit} loading={submitting} />
         </Card>
       </ScrollView>
     </Screen>
@@ -115,22 +128,41 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
-  content: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 130 },
+  content: { flexGrow: 1, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 130 },
   headerWrap: { marginBottom: 10 },
-  h: { fontSize: 23, fontWeight: '900' },
-  p: { marginTop: 4, fontWeight: '700', fontSize: 14 },
+  headerRow: { flexDirection: 'row', alignItems: 'center' },
+  backBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAF2FF',
+    borderWidth: 1,
+    borderColor: '#C9D8F0',
+    marginRight: 8,
+  },
+  backBtnHidden: { opacity: 0 },
+  headerTextWrap: { flex: 1 },
+  h: { fontSize: 22, lineHeight: 24, fontWeight: '900' },
+  p: { marginTop: 3, fontWeight: '700', fontSize: 12, lineHeight: 16 },
   formCard: {
-    borderRadius: 18,
-    borderColor: '#C4D1E8',
-    borderWidth: 1.2,
-    backgroundColor: 'rgba(255,255,255,0.76)',
+    borderRadius: 14,
+    borderColor: '#D5DEF3',
+    borderWidth: 1,
+    backgroundColor: '#F8FAFC',
+    shadowColor: '#5F82BA',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2,
   },
   attachCard: {
     marginTop: 6,
-    borderRadius: 12,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#C9D8F0',
-    backgroundColor: '#F5F8FD',
+    borderColor: '#D3DEF3',
+    backgroundColor: '#EEF4FE',
     padding: 10,
   },
   label: { fontWeight: '800', marginBottom: 6, fontSize: 13 },

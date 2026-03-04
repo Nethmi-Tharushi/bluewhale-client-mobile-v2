@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Badge, EmptyState, Screen } from '../../components/ui';
 import { Spacing } from '../../constants/theme';
@@ -12,7 +12,15 @@ import { useTheme } from '../../theme/ThemeProvider';
 
 type Props = NativeStackScreenProps<InquiryStackParamList, 'InquiryDetails'>;
 
-export default function InquiryDetailsScreen({ route }: Props) {
+const normalizeReplyBy = (value: any) => {
+  const raw = String(value || '').trim();
+  if (!raw) return 'Support';
+  // Mongo ObjectId / UUID-like / long token values are not user-friendly names.
+  if (/^[a-f0-9]{24}$/i.test(raw) || /^[a-f0-9-]{32,}$/i.test(raw)) return 'Support';
+  return raw;
+};
+
+export default function InquiryDetailsScreen({ navigation, route }: Props) {
   const t = useTheme();
   const { inquiryId } = route.params;
   const [item, setItem] = useState<Inquiry | null>(null);
@@ -34,6 +42,29 @@ export default function InquiryDetailsScreen({ route }: Props) {
     })();
   }, [inquiryId]);
 
+  const displayedReplies = useMemo(() => {
+    const list: Array<{ by?: string; message?: string; createdAt?: string }> = [];
+    const response = (item as any)?.response;
+    if (response && typeof response === 'object' && String(response?.message || '').trim()) {
+      list.push({
+        by: normalizeReplyBy(response?.repliedBy || response?.by),
+        message: String(response?.message || '').trim(),
+        createdAt: String(response?.repliedAt || response?.createdAt || '').trim() || undefined,
+      });
+    }
+
+    const replies = Array.isArray((item as any)?.replies) ? (item as any).replies : [];
+    for (const r of replies) {
+      if (!r || !String(r?.message || '').trim()) continue;
+      list.push({
+        by: normalizeReplyBy(r?.by || r?.repliedBy),
+        message: String(r?.message || '').trim(),
+        createdAt: String(r?.createdAt || r?.repliedAt || '').trim() || undefined,
+      });
+    }
+    return list;
+  }, [item]);
+
   if (!item && !loading) {
     return (
       <Screen padded={false}>
@@ -46,8 +77,19 @@ export default function InquiryDetailsScreen({ route }: Props) {
     <Screen padded={false}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.headerWrap}>
-          <Text style={[styles.pageTitle, { color: t.colors.primary }]}>Inquiry Details</Text>
-          <Text style={styles.pageSub}>Track your inquiry and replies from support</Text>
+          <View style={styles.headerRow}>
+            <Pressable
+              onPress={() => navigation.canGoBack() && navigation.goBack()}
+              style={[styles.backBtn, !navigation.canGoBack() && styles.backBtnHidden]}
+              disabled={!navigation.canGoBack()}
+            >
+              <Feather name="arrow-left" size={18} color="#1B3890" />
+            </Pressable>
+            <View style={styles.headerTextWrap}>
+              <Text style={[styles.pageTitle, { color: t.colors.primary }]}>Inquiry Details</Text>
+              <Text style={styles.pageSub}>Track your inquiry and replies from support</Text>
+            </View>
+          </View>
         </View>
 
         <View style={styles.outerCard}>
@@ -72,8 +114,8 @@ export default function InquiryDetailsScreen({ route }: Props) {
 
             <View style={styles.block}>
               <Text style={[styles.h, { color: t.colors.primary }]}>Replies</Text>
-              {(item?.replies || []).length ? (
-                (item?.replies || []).map((r, idx) => (
+              {displayedReplies.length ? (
+                displayedReplies.map((r, idx) => (
                   <View key={idx} style={styles.reply}>
                     <Text style={[styles.replyBy, { color: t.colors.primary }]}>{r.by || 'Support'}</Text>
                     <Text style={[styles.replyMsg, { color: t.colors.text }]}>{r.message}</Text>
@@ -95,6 +137,20 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   content: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 12, paddingBottom: 130 },
   headerWrap: { marginBottom: 10 },
+  headerRow: { flexDirection: 'row', alignItems: 'center' },
+  backBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAF2FF',
+    borderWidth: 1,
+    borderColor: '#C9D8F0',
+    marginRight: 8,
+  },
+  backBtnHidden: { opacity: 0 },
+  headerTextWrap: { flex: 1 },
   pageTitle: { fontSize: 23, fontWeight: '900' },
   pageSub: { marginTop: 3, color: '#5E6F95', fontWeight: '700', fontSize: 14 },
   outerCard: {

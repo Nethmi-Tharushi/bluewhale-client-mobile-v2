@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Alert, Linking, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { JobsService } from '../../api/services';
+import { ApplicationsService, JobsService } from '../../api/services';
 import type { Job } from '../../types/models';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { JobsStackParamList } from '../../navigation/app/AppNavigator';
@@ -20,6 +21,59 @@ const pickString = (obj: any, keys: string[], fallback = '') => {
     if (typeof v === 'number') return String(v);
   }
   return fallback;
+};
+
+const pickPath = (obj: any, path: string) => {
+  if (!path.includes('.')) return obj?.[path];
+  return path.split('.').reduce((acc: any, part: string) => acc?.[part], obj);
+};
+
+const pickAny = (obj: any, keys: string[], fallback = '') => {
+  for (const key of keys) {
+    const v = pickPath(obj, key);
+    if (typeof v === 'string' && v.trim()) return v.trim();
+    if (typeof v === 'number') return String(v);
+  }
+  return fallback;
+};
+
+const getPricingForDetails = (job: any, user: any) => {
+  const pricing = job?.pricing;
+  if (pricing && typeof pricing === 'object') {
+    const role = String(user?.userType || user?.role || '').toLowerCase();
+    const isAgentOrManagedView = role.includes('agent') || role.includes('managed');
+    const amount = isAgentOrManagedView
+      ? pricing?.agentPrice ?? pricing?.candidatePrice
+      : pricing?.candidatePrice ?? pricing?.agentPrice;
+    if (amount !== undefined && amount !== null && String(amount).trim() !== '') {
+      const currency = String(pricing?.currency || 'USD').trim() || 'USD';
+      return `${currency} ${String(amount).trim()}`;
+    }
+  }
+  return pickAny(
+    job,
+    [
+      'pricing',
+      'price',
+      'cost',
+      'pricingText',
+      'priceText',
+      'serviceFee',
+      'service_fee',
+      'applicationFee',
+      'application_fee',
+      'budget',
+      'rate',
+      'hourlyRate',
+      'dailyRate',
+      'pricing.value',
+      'pricing.amount',
+      'pricing.price',
+      'compensation.amount',
+      'compensation.value',
+    ],
+    'N/A'
+  );
 };
 
 const listFromAny = (value: any): string[] => {
@@ -51,6 +105,7 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
+  const [alreadyApplied, setAlreadyApplied] = useState(false);
   const userId = String((user as any)?._id || (user as any)?.id || '').trim() || 'guest';
 
   useEffect(() => {
@@ -79,21 +134,69 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
     })();
   }, [jobId, userId]);
 
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await ApplicationsService.my();
+        const arr: any[] = Array.isArray(res) ? res : (res as any)?.applications || (res as any)?.items || [];
+        const appliedIds = arr
+          .map((a: any) => a?.job?._id || a?.job?.id || a?.jobId || a?.job)
+          .map((x: any) => String(x || '').trim())
+          .filter(Boolean);
+        setAlreadyApplied(appliedIds.includes(String(jobId)));
+      } catch {
+        setAlreadyApplied(false);
+      }
+    })();
+  }, [jobId]);
+
   const title = pickString(job, ['title', 'jobTitle', 'position'], loading ? 'Loading...' : 'Job Details');
   const company = pickString(job, ['company', 'companyName', 'employer', 'organization'], 'Company');
   const location = pickString(job, ['location', 'city', 'jobLocation'], 'Location');
   const jobType = pickString(job, ['type', 'jobType', 'employmentType'], 'N/A');
-  const pricing = pickString(job, ['pricing', 'price', 'cost'], 'N/A');
+  const pricing = getPricingForDetails(job, user);
   const salary = pickString(job, ['salary', 'salaryRange', 'salaryText'], 'N/A');
-  const closingDateRaw = pickString(job, ['closingDate', 'applicationDeadline', 'deadline', 'expiryDate'], 'N/A');
+  const displayJobId = String((job as any)?._id || (job as any)?.id || jobId || '').trim() || 'N/A';
+  const closingDateRaw = pickAny(
+    job,
+    [
+      'expiringAt',
+      'expiring_at',
+      'expiringDate',
+      'closingDate',
+      'applicationDeadline',
+      'deadline',
+      'expiryDate',
+      'expiry_date',
+      'expiresAt',
+      'expires_at',
+      'expireDate',
+      'endDate',
+      'end_date',
+      'lastDate',
+      'closeDate',
+      'closing_date',
+      'validTill',
+      'validUntil',
+      'availability.endDate',
+    ],
+    'N/A'
+  );
   const closingDate = closingDateRaw === 'N/A' ? 'N/A' : formatDateValue(closingDateRaw);
-  const ageLimit =
-    pickString(job, ['ageLimit', 'ageRange'], '') ||
-    (() => {
-      const min = pickString(job, ['minAge'], '');
-      const max = pickString(job, ['maxAge'], '');
-      return min || max ? `${min || '?'} - ${max || '?'} years` : 'N/A';
-    })();
+  const ageLimit = (() => {
+    const minRaw = (job as any)?.ageLimit?.min;
+    const maxRaw = (job as any)?.ageLimit?.max;
+    const min = minRaw !== undefined && minRaw !== null ? String(minRaw).trim() : '';
+    const max = maxRaw !== undefined && maxRaw !== null ? String(maxRaw).trim() : '';
+    if (min || max) return `${min || '?'} - ${max || '?'} years`;
+
+    const legacy = pickString(job, ['ageRange', 'age_limit'], '');
+    if (legacy) return legacy;
+
+    const legacyMin = pickAny(job, ['minAge', 'age.min'], '');
+    const legacyMax = pickAny(job, ['maxAge', 'age.max'], '');
+    return legacyMin || legacyMax ? `${legacyMin || '?'} - ${legacyMax || '?'} years` : 'N/A';
+  })();
   const description = pickString(job, ['description', 'jobDescription', 'overview'], 'No description provided.');
 
   const requirements = useMemo(() => {
@@ -142,10 +245,23 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
 
   const onApply = () => navigation.navigate('ApplyJob', { jobId });
   const onAsk = () =>
-    (navigation.getParent() as any)?.navigate('Inquiries', {
-      screen: 'CreateInquiry',
-      params: { jobId },
+    (navigation.getParent() as any)?.navigate({
+      name: 'Inquiries',
+      params: {
+        screen: 'CreateInquiry',
+        params: { jobId },
+      },
+      merge: true,
     });
+  const onCopyJobId = async () => {
+    if (!displayJobId || displayJobId === 'N/A') return;
+    try {
+      await Clipboard.setStringAsync(displayJobId);
+      Alert.alert('Copied', 'Job ID copied to clipboard.');
+    } catch {
+      Alert.alert('Copy failed', 'Unable to copy Job ID right now.');
+    }
+  };
 
   const onShare = async () => {
     try {
@@ -191,9 +307,7 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
                 {`${company} · ${location}`}
               </Text>
             </View>
-            <View style={styles.flagBtn}>
-              <Feather name="flag" size={19} color="#3C57A4" />
-            </View>
+            
           </View>
 
           <View style={styles.companyCard}>
@@ -242,6 +356,7 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
             <Text style={[styles.metricsTitle, { fontFamily: t.typography.fontFamily.bold }]}>Job Details</Text>
             <View style={styles.metricsGrid}>
               {[
+                { key: 'Job ID', value: displayJobId, icon: 'hash' as const, tone: styles.metricToneBlue },
                 { key: 'Location', value: location, icon: 'map-pin' as const, tone: styles.metricToneBlue },
                 { key: 'Pricing', value: pricing, icon: 'clock' as const, tone: styles.metricToneGreen },
                 { key: 'Salary', value: salary, icon: 'dollar-sign' as const, tone: styles.metricTonePurple },
@@ -250,11 +365,18 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
                 { key: 'Job Type', value: jobType, icon: 'briefcase' as const, tone: styles.metricToneCyan },
               ].map((item) => (
                 <View key={item.key} style={[styles.metricCell, item.tone]}>
-                  <View style={styles.metricLabelRow}>
-                    <Feather name={item.icon} size={14} color="#1F4BA7" />
-                    <Text style={[styles.metricLabel, { fontFamily: t.typography.fontFamily.medium }]}>{item.key}</Text>
+                  <View style={[styles.metricLabelRow, item.key === 'Job ID' && styles.metricLabelRowWithAction]}>
+                    <View style={styles.metricLabelLeft}>
+                      <Feather name={item.icon} size={14} color="#1F4BA7" />
+                      <Text style={[styles.metricLabel, { fontFamily: t.typography.fontFamily.medium }]}>{item.key}</Text>
+                    </View>
+                    {item.key === 'Job ID' ? (
+                      <Pressable onPress={onCopyJobId} hitSlop={8} style={styles.copyBtn}>
+                        <Feather name="copy" size={14} color="#1F4BA7" />
+                      </Pressable>
+                    ) : null}
                   </View>
-                  <Text style={[styles.metricValue, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={2}>
+                  <Text style={[styles.metricValue, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={item.key === 'Job ID' ? 1 : 2}>
                     {item.value || 'N/A'}
                   </Text>
                 </View>
@@ -320,11 +442,18 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
         </ScrollView>
 
         <View style={[styles.bottomCard, { bottom: 104 + insets.bottom }]}>
-          <Pressable onPress={onApply} style={({ pressed }) => [pressed && { opacity: 0.95 }]}>
-            <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.applyBtn}>
-              <Feather name="send" size={16} color="#FFFFFF" />
-              <Text style={[styles.applyText, { fontFamily: t.typography.fontFamily.bold }]}>Apply Now</Text>
-            </LinearGradient>
+          <Pressable onPress={onApply} disabled={alreadyApplied} style={({ pressed }) => [pressed && !alreadyApplied && { opacity: 0.95 }]}>
+            {alreadyApplied ? (
+              <View style={styles.appliedBtn}>
+                <Feather name="check-circle" size={16} color="#119A4F" />
+                <Text style={[styles.appliedText, { fontFamily: t.typography.fontFamily.bold }]}>Applied</Text>
+              </View>
+            ) : (
+              <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.applyBtn}>
+                <Feather name="send" size={16} color="#FFFFFF" />
+                <Text style={[styles.applyText, { fontFamily: t.typography.fontFamily.bold }]}>Apply Now</Text>
+              </LinearGradient>
+            )}
           </Pressable>
           <Pressable onPress={onAsk}>
             <Text style={[styles.askText, { fontFamily: t.typography.fontFamily.bold }]}>Ask a question</Text>
@@ -532,6 +661,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  metricLabelLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metricLabelRowWithAction: {
+    justifyContent: 'space-between',
+  },
   metricLabel: {
     marginLeft: 5,
     color: '#234287',
@@ -545,6 +681,16 @@ const styles = StyleSheet.create({
     fontSize: 15,
     lineHeight: 20,
     fontWeight: '800',
+  },
+  copyBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#C3D7F7',
+    backgroundColor: '#F4F8FF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   sectionCard: {
     backgroundColor: '#FAFCFF',
@@ -638,6 +784,23 @@ const styles = StyleSheet.create({
   },
   applyText: {
     color: '#FFFFFF',
+    fontSize: 17,
+    lineHeight: 21,
+    fontWeight: '800',
+  },
+  appliedBtn: {
+    height: 42,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: '#33C16D',
+    backgroundColor: '#CDEEDB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 7,
+  },
+  appliedText: {
+    color: '#128A4A',
     fontSize: 17,
     lineHeight: 21,
     fontWeight: '800',

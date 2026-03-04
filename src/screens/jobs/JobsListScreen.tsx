@@ -32,6 +32,59 @@ const pick = (obj: any, keys: string[], fallback = '') => {
   return fallback;
 };
 
+const pickPath = (obj: any, path: string) => {
+  if (!path.includes('.')) return obj?.[path];
+  return path.split('.').reduce((acc: any, part: string) => acc?.[part], obj);
+};
+
+const pickAny = (obj: any, keys: string[], fallback = '') => {
+  for (const key of keys) {
+    const value = pickPath(obj, key);
+    if (typeof value === 'string' && value.trim()) return value.trim();
+    if (typeof value === 'number') return String(value);
+  }
+  return fallback;
+};
+
+const getPricingForCard = (job: any, user: any) => {
+  const pricing = job?.pricing;
+  if (pricing && typeof pricing === 'object') {
+    const role = String(user?.userType || user?.role || '').toLowerCase();
+    const isAgentOrManagedView = role.includes('agent') || role.includes('managed');
+    const amount = isAgentOrManagedView
+      ? pricing?.agentPrice ?? pricing?.candidatePrice
+      : pricing?.candidatePrice ?? pricing?.agentPrice;
+    if (amount !== undefined && amount !== null && String(amount).trim() !== '') {
+      const currency = String(pricing?.currency || 'USD').trim() || 'USD';
+      return `${currency} ${String(amount).trim()}`;
+    }
+  }
+  return pickAny(
+    job,
+    [
+      'pricing',
+      'price',
+      'cost',
+      'pricingText',
+      'priceText',
+      'serviceFee',
+      'service_fee',
+      'applicationFee',
+      'application_fee',
+      'budget',
+      'rate',
+      'hourlyRate',
+      'dailyRate',
+      'pricing.value',
+      'pricing.amount',
+      'pricing.price',
+      'compensation.amount',
+      'compensation.value',
+    ],
+    'N/A'
+  );
+};
+
 const jobKey = (j: any) =>
   String(j?._id || j?.id || `${pick(j, ['title'])}-${pick(j, ['company'])}-${pick(j, ['location'])}`).toLowerCase();
 
@@ -111,7 +164,8 @@ export default function JobsListScreen({ navigation }: Props) {
         `${pick(j as any, ['location', 'city', 'jobLocation'])} ` +
         `${pick(j as any, ['type', 'jobType', 'employmentType'])} ` +
         `${pick(j as any, ['salary', 'salaryRange', 'salaryText'])} ` +
-        `${pick(j as any, ['pricing', 'price', 'cost'])} ` +
+        `${getPricingForCard(j as any, user)} ` +
+        `${pickAny(j as any, ['expiringAt', 'expiring_at', 'expiryDate', 'deadline'])} ` +
         `${splitList((j as any)?.tags).join(' ')} ` +
         `${splitList((j as any)?.skills).join(' ')} ` +
         `${splitList((j as any)?.benefits).join(' ')} ` +
@@ -124,7 +178,7 @@ export default function JobsListScreen({ navigation }: Props) {
       const matchesType = !tFilter || jobType.includes(tFilter);
       return matchesText && matchesCountry && matchesType;
     });
-  }, [jobs, q, countryFilter, jobTypeFilter]);
+  }, [jobs, q, countryFilter, jobTypeFilter, user]);
 
   const displayName = useMemo(() => {
     const firstLast = `${String(user?.firstName || '').trim()} ${String(user?.lastName || '').trim()}`.trim();
@@ -487,18 +541,42 @@ export default function JobsListScreen({ navigation }: Props) {
               </View>
             </View>
 
-            <View style={styles.metaWrap}>
+              <View style={styles.metaWrap}>
               <View style={[styles.metaPill, styles.metaPillGreen]}>
                 <Feather name="clock" size={14} color="#03A561" />
                 <Text style={[styles.metaText, styles.metaTextGreen, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
-                  {`Pricing: ${pick(item, ['pricing', 'price', 'cost'], 'N/A')}`}
+                  {`Pricing: ${getPricingForCard(item, user)}`}
                 </Text>
               </View>
               <View style={[styles.metaPill, styles.metaPillOrange]}>
                 <Feather name="calendar" size={14} color="#DF5C0D" />
                 <Text style={[styles.metaText, styles.metaTextOrange, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
                   {`Expires: ${(() => {
-                    const raw = pick(item, ['closingDate', 'applicationDeadline', 'deadline', 'expiryDate'], '');
+                    const raw = pickAny(
+                      item,
+                      [
+                        'expiringAt',
+                        'expiring_at',
+                        'expiringDate',
+                        'closingDate',
+                        'applicationDeadline',
+                        'deadline',
+                        'expiryDate',
+                        'expiry_date',
+                        'expiresAt',
+                        'expires_at',
+                        'expireDate',
+                        'endDate',
+                        'end_date',
+                        'lastDate',
+                        'closeDate',
+                        'closing_date',
+                        'validTill',
+                        'validUntil',
+                        'availability.endDate',
+                      ],
+                      ''
+                    );
                     return raw ? formatDate(raw) || raw : 'N/A';
                   })()}`}
                 </Text>

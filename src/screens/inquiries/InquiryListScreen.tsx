@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { FlatList, RefreshControl, StyleSheet, Text, View } from 'react-native';
+import { FlatList, Pressable, RefreshControl, StyleSheet, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { Badge, Button, EmptyState, Screen } from '../../components/ui';
 import { Spacing } from '../../constants/theme';
@@ -54,10 +54,21 @@ export default function InquiryListScreen({ navigation }: Props) {
         }
         ListHeaderComponent={
           <View style={styles.headerWrap}>
-            <Text style={[styles.heading, { color: '#1B3890' }]}>My Inquiries</Text>
-            <Text style={[styles.sub, { color: '#5E6F95' }]}>Questions and support updates</Text>
+            <View style={styles.headerRow}>
+              <Pressable
+                onPress={() => navigation.canGoBack() && navigation.goBack()}
+                style={[styles.backBtn, !navigation.canGoBack() && styles.backBtnHidden]}
+                disabled={!navigation.canGoBack()}
+              >
+                <Feather name="arrow-left" size={18} color="#1B3890" />
+              </Pressable>
+              <View style={styles.headerTextWrap}>
+                <Text style={[styles.heading, { color: '#1B3890' }]}>My Inquiries</Text>
+                <Text style={[styles.sub, { color: '#5E6F95' }]}>Questions and support updates</Text>
+              </View>
+            </View>
             <View style={styles.createWrap}>
-              <Button title="Create inquiry" onPress={() => navigation.push('CreateInquiry', { jobId: '' })} />
+              <Button title="Create inquiry" size="sm" onPress={() => navigation.push('CreateInquiry', { jobId: '' })} />
             </View>
           </View>
         }
@@ -69,31 +80,36 @@ export default function InquiryListScreen({ navigation }: Props) {
           />
         }
         renderItem={({ item }) => (
-          <View style={styles.outerCard}>
-            <View style={styles.innerCard}>
-              <View style={styles.topRow}>
-                <View style={styles.iconWrap}>
-                  <Feather name="help-circle" size={24} color="#2574CA" />
-                </View>
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={[styles.title, { color: '#111D3E' }]} numberOfLines={1}>
-                    {item.subject || item.category || 'Inquiry'}
-                  </Text>
-                  <Text style={styles.metaText}>{`Created ${formatDate(item.createdAt) || 'recently'}`}</Text>
-                </View>
-                <Badge text={item.status || 'Open'} />
+          <Pressable
+            onPress={() => navigation.navigate('InquiryDetails', { inquiryId: item._id })}
+            style={({ pressed }) => [styles.inquiryCard, pressed && styles.inquiryCardPressed]}
+          >
+            <View style={styles.topRow}>
+              <View style={styles.iconWrap}>
+                <Feather name="help-circle" size={20} color="#2574CA" />
               </View>
-
-              {item.message ? (
-                <Text style={styles.message} numberOfLines={2}>
-                  {item.message}
+              <View style={styles.titleBlock}>
+                <Text style={[styles.title, { color: '#111D3E' }]} numberOfLines={1}>
+                  {item.subject || item.category || 'Inquiry'}
                 </Text>
-              ) : null}
-
-              <View style={{ height: 10 }} />
-              <Button title="Open details" onPress={() => navigation.navigate('InquiryDetails', { inquiryId: item._id })} variant="outline" />
+                <Text style={styles.metaText}>{`Created ${formatDate(item.createdAt) || 'recently'}`}</Text>
+              </View>
+              <Badge text={item.status || 'Open'} />
             </View>
-          </View>
+
+            {item.message ? (
+              <Text style={styles.message} numberOfLines={2}>
+                {item.message}
+              </Text>
+            ) : null}
+
+            <View style={styles.actionsRow}>
+              <View style={styles.tapHint}>
+                <Feather name="arrow-up-right" size={14} color="#5D7BBE" />
+                <Text style={styles.tapHintText}>Tap card to open</Text>
+              </View>
+            </View>
+          </Pressable>
         )}
       />
     </Screen>
@@ -101,44 +117,74 @@ export default function InquiryListScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  content: { paddingHorizontal: 16, paddingTop: 12, paddingBottom: 130 },
+  content: { paddingHorizontal: 12, paddingTop: 10, paddingBottom: 130 },
   headerWrap: { marginBottom: Spacing.sm },
-  heading: { fontSize: 23, fontWeight: '900' },
-  sub: { marginTop: 3, fontWeight: '700', fontSize: 14 },
-  createWrap: { marginTop: 10 },
-  outerCard: {
-    marginBottom: 10,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.76)',
-    borderWidth: 1.2,
-    borderColor: '#C8D5EE',
+  headerRow: { flexDirection: 'row', alignItems: 'center' },
+  backBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EAF2FF',
+    borderWidth: 1,
+    borderColor: '#C9D8F0',
+    marginRight: 8,
+  },
+  backBtnHidden: { opacity: 0 },
+  headerTextWrap: { flex: 1 },
+  heading: { fontSize: 18, lineHeight: 24, fontWeight: '900' },
+  sub: { marginTop: 3, fontWeight: '700', fontSize: 12, lineHeight: 16 },
+  createWrap: { marginTop: 8 },
+  inquiryCard: {
+    marginBottom: 8,
+    borderRadius: 14,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#D5DEF3',
     padding: 10,
-    shadowColor: '#3D5EA8',
-    shadowOpacity: 0.1,
+    shadowColor: '#5F82BA',
+    shadowOpacity: 0.08,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
-    elevation: 3,
+    elevation: 2,
   },
-  innerCard: {
-    borderRadius: 16,
-    borderWidth: 1.2,
-    borderColor: '#C4D0E8',
-    backgroundColor: 'rgba(255,255,255,0.5)',
-    padding: 12,
+  inquiryCardPressed: {
+    backgroundColor: '#EEF4FE',
+    borderColor: '#BED2F1',
   },
   topRow: { flexDirection: 'row', alignItems: 'center' },
   iconWrap: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
+    width: 38,
+    height: 38,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#C9D8F0',
     backgroundColor: '#EAF2FF',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { fontSize: 17, fontWeight: '900' },
+  titleBlock: {
+    flex: 1,
+    marginLeft: 10,
+    marginRight: 8,
+  },
+  title: { fontSize: 16, lineHeight: 20, fontWeight: '900' },
   metaText: { marginTop: 2, color: '#5C6E92', fontSize: 12, fontWeight: '700' },
-  message: { marginTop: 8, color: '#2A3B61', fontSize: 13, lineHeight: 18, fontWeight: '600' },
+  message: { marginTop: 8, color: '#2A3B61', fontSize: 12, lineHeight: 16, fontWeight: '600' },
+  actionsRow: {
+    marginTop: 10,
+    gap: 8,
+  },
+  tapHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  tapHintText: {
+    color: '#5D7BBE',
+    fontSize: 11,
+    lineHeight: 15,
+    fontWeight: '700',
+  },
 });
-
