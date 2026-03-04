@@ -57,7 +57,7 @@ api.interceptors.response.use(
 
     const message =
       (shouldFailOver &&
-        `Network Error. Tried: ${baseUrlCandidates.join(' , ')}. Set EXPO_PUBLIC_API_URL to your backend URL (e.g. http://192.168.x.x:3001).`) ||
+        `Network Error. Tried: ${baseUrlCandidates.join(' , ')}. Set EXPO_PUBLIC_API_URL to your backend URL (e.g. https://bluewhale-backend.onrender.com).`) ||
       err?.response?.data?.message ||
       err?.response?.data?.error ||
       (err?.response?.status && responseDetails ? `HTTP ${err.response.status}: ${responseDetails}` : undefined) ||

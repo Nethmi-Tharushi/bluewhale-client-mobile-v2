@@ -2,7 +2,7 @@
   "expo": {
     "name": "Blue Whale",
     "slug": "bluewhale-client-mobile",
-    "version": "1.0.0",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -11,23 +11,31 @@
       "resizeMode": "contain",
       "backgroundColor": "#0b1220"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.bluewhale.client"
+      "bundleIdentifier": "com.bluewhale.client",
+      "buildNumber": "2",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0b1220"
       },
-      "package": "com.bluewhale.client"
+      "package": "com.bluewhale.client",
+      "versionCode": 2
     },
     "plugins": [],
     "extra": {
       "eas": {
-        "projectId": "00000000-0000-0000-0000-000000000000"
+        "projectId": "bb7d0ca5-06b9-4d24-8558-2330c6dde797"
       }
-    }
+    },
+    "owner": "neth_tharu"
   }
 }
