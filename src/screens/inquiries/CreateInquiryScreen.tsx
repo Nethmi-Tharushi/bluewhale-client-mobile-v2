@@ -1,17 +1,21 @@
-import React, { useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { Feather } from '@expo/vector-icons';
-import { Button, Card, Input, Screen } from '../../components/ui';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Button, Input, Screen } from '../../components/ui';
 import { InquiriesService, UploadService } from '../../api/services';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InquiryStackParamList } from '../../navigation/app/AppNavigator';
 import { useTheme } from '../../theme/ThemeProvider';
+import { ensureUploadSizeWithinLimit } from '../../utils/uploadValidation';
 
 type Props = NativeStackScreenProps<InquiryStackParamList, 'CreateInquiry'>;
 
 export default function CreateInquiryScreen({ navigation, route }: Props) {
   const t = useTheme();
+  const { width } = useWindowDimensions();
+  const compact = width < 390;
   const routeJobId = typeof route.params?.jobId === 'string' ? route.params.jobId.trim() : '';
 
   const [jobId, setJobId] = useState(routeJobId);
@@ -23,15 +27,80 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  React.useEffect(() => {
-    // Always sync form state with latest route param.
+  const heroEntrance = useRef(new Animated.Value(0)).current;
+  const formEntrance = useRef(new Animated.Value(0)).current;
+  const pulse = useRef(new Animated.Value(0)).current;
+  const float = useRef(new Animated.Value(0)).current;
+  const sweep = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
     setJobId(routeJobId || '');
   }, [routeJobId]);
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(heroEntrance, {
+        toValue: 1,
+        duration: 620,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+      Animated.timing(formEntrance, {
+        toValue: 1,
+        duration: 760,
+        delay: 110,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }),
+    ]).start();
+
+    const loops = [
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulse, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(pulse, { toValue: 0, duration: 1800, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ])
+      ),
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(float, { toValue: 1, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(float, { toValue: 0, duration: 2600, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+        ])
+      ),
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(sweep, { toValue: 1, duration: 2300, delay: 650, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          Animated.timing(sweep, { toValue: 0, duration: 0, useNativeDriver: true }),
+        ])
+      ),
+    ];
+
+    loops.forEach((loop) => loop.start());
+    return () => loops.forEach((loop) => loop.stop());
+  }, [float, formEntrance, heroEntrance, pulse, sweep]);
+
+  const heroY = heroEntrance.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
+  const sectionY = formEntrance.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
+  const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
+  const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.22, 0.48] });
+  const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
+  const sweepX = sweep.interpolate({ inputRange: [0, 1], outputRange: [-180, 260] });
+  const heroStats = [
+    { key: 'job', value: jobId ? 'Linked' : 'Needed', label: 'Job', color: '#1768B8', icon: 'briefcase' as const, iconBg: '#EAF2FF' },
+    { key: 'proof', value: attachmentUrl ? 'Added' : 'Optional', label: 'Proof', color: '#C46C15', icon: 'paperclip' as const, iconBg: '#FFF4E4' },
+    { key: 'state', value: message.trim() ? 'Ready' : 'Draft', label: 'State', color: '#118D4C', icon: 'edit-3' as const, iconBg: '#EAF8F0' },
+  ];
 
   const pickAttachment = async () => {
     const res = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
     if (res.canceled) return;
     const file = res.assets[0];
+    try {
+      await ensureUploadSizeWithinLimit({ uri: file.uri, name: file.name, size: file.size ?? null });
+    } catch (e: any) {
+      Alert.alert('File too large', e?.userMessage || e?.message || 'Please choose a file smaller than 5 MB.');
+      return;
+    }
     setUploading(true);
     try {
       const uploaded = await UploadService.uploadFile({ uri: file.uri, name: file.name, type: file.mimeType || 'application/octet-stream' });
@@ -82,45 +151,136 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
   return (
     <Screen padded={false}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.headerWrap}>
-          <View style={styles.headerRow}>
-            <Pressable
-              onPress={() => navigation.canGoBack() && navigation.goBack()}
-              style={[styles.backBtn, !navigation.canGoBack() && styles.backBtnHidden]}
-              disabled={!navigation.canGoBack()}
-            >
-              <Feather name="arrow-left" size={18} color="#1B3890" />
-            </Pressable>
-            <View style={styles.headerTextWrap}>
-              <Text style={[styles.h, { color: t.colors.primary }]}>Create Inquiry</Text>
-              <Text style={[styles.p, { color: '#5E6F95' }]}>Message support/admin and track replies.</Text>
+        <Animated.View style={[styles.headerWrap, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
+          <Pressable
+            onPress={() => navigation.canGoBack() && navigation.goBack()}
+            style={({ pressed }) => [styles.backBtn, !navigation.canGoBack() && styles.backBtnHidden, pressed && styles.pressed]}
+            disabled={!navigation.canGoBack()}
+          >
+            <Feather name="arrow-left" size={18} color="#1B3890" />
+          </Pressable>
+          <View style={styles.headerTextWrap}>
+            <Text style={[styles.eyebrow, { fontFamily: t.typography.fontFamily.bold }]}>NEW SUPPORT THREAD</Text>
+            <Text style={[styles.h, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>Create Inquiry</Text>
+            <Text style={[styles.p, { color: '#5E6F95', fontFamily: t.typography.fontFamily.medium }]}>Send one clear message to support.</Text>
+          </View>
+          <View style={styles.liveChip}>
+            <Animated.View style={[styles.liveDot, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
+            <Text style={[styles.liveText, { fontFamily: t.typography.fontFamily.bold }]}>{submitting ? 'Sending' : 'Draft'}</Text>
+          </View>
+        </Animated.View>
+
+        <Animated.View style={[styles.heroCard, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
+          <View style={styles.heroGlowA} />
+          <Animated.View style={[styles.heroGlowB, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
+          <Animated.View style={[styles.heroSweep, { transform: [{ translateX: sweepX }, { rotate: '18deg' }] }]} />
+
+          <View style={styles.heroTopRow}>
+            <View style={styles.heroBadge}>
+              <Feather name="edit-3" size={13} color="#1768B8" />
+              <Text style={[styles.heroBadgeText, { fontFamily: t.typography.fontFamily.bold }]}>Composer lane</Text>
+            </View>
+            <View style={styles.heroSignal}>
+              <Feather name="corner-down-right" size={13} color="#118D4C" />
+              <Text style={[styles.heroSignalText, { fontFamily: t.typography.fontFamily.bold }]}>Track replies</Text>
             </View>
           </View>
-        </View>
 
-        <Card style={styles.formCard}>
+          <View style={[styles.heroMain, compact && styles.heroMainCompact]}>
+            <View style={styles.heroCopyBlock}>
+              <Text style={[styles.heroTitle, { fontFamily: t.typography.fontFamily.bold }]}>Keep support context in one place.</Text>
+              <Text style={[styles.heroBody, { fontFamily: t.typography.fontFamily.medium }]}>
+                Add a job ID, your issue, and proof if needed.
+              </Text>
+
+              <View style={styles.heroStatsRow}>
+                {heroStats.map((item) => (
+                  <View key={item.key} style={styles.heroStatCard}>
+                    <View style={[styles.heroStatIcon, { backgroundColor: item.iconBg }]}>
+                      <Feather name={item.icon} size={12} color={item.color} />
+                    </View>
+                    <Text style={[styles.heroStatValue, { color: item.color, fontFamily: t.typography.fontFamily.bold }]}>{item.value}</Text>
+                    <Text style={[styles.heroStatLabel, { fontFamily: t.typography.fontFamily.medium }]}>{item.label}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+
+            <Animated.View style={[styles.heroVisual, { transform: [{ translateY: floatY }] }]}>
+              <View style={styles.heroVisualPanel}>
+                <View style={styles.heroBubblePrimary}>
+                  <Feather name="hash" size={12} color="#1768B8" />
+                  <Text style={[styles.heroBubblePrimaryText, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
+                    {jobId || 'Job ID'}
+                  </Text>
+                </View>
+                <View style={styles.heroBubbleSecondary}>
+                  <Text style={[styles.heroBubbleSecondaryText, { fontFamily: t.typography.fontFamily.medium }]}>{fileName ? 'Attachment added' : 'No attachment yet'}</Text>
+                </View>
+                <View style={styles.heroTimeline}>
+                  <View style={[styles.heroTimelineBar, styles.heroTimelineBarWide]} />
+                  <View style={[styles.heroTimelineBar, styles.heroTimelineBarMid]} />
+                  <View style={[styles.heroTimelineBar, styles.heroTimelineBarShort]} />
+                </View>
+                <View style={styles.heroFooterChip}>
+                  <Feather name="send" size={12} color="#118D4C" />
+                  <Text style={[styles.heroFooterChipText, { fontFamily: t.typography.fontFamily.bold }]}>Ready to send</Text>
+                </View>
+              </View>
+            </Animated.View>
+          </View>
+        </Animated.View>
+
+        <Animated.View style={[styles.formCard, { opacity: formEntrance, transform: [{ translateY: sectionY }] }]}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={[styles.sectionEyebrow, { fontFamily: t.typography.fontFamily.bold }]}>THREAD DETAILS</Text>
+              <Text style={[styles.sectionTitle, { fontFamily: t.typography.fontFamily.bold }]}>Inquiry Form</Text>
+            </View>
+            <View style={styles.sectionChip}>
+              <Feather name="message-circle" size={12} color="#1D5FD2" />
+              <Text style={[styles.sectionChipText, { fontFamily: t.typography.fontFamily.bold }]}>Support</Text>
+            </View>
+          </View>
+
           <Input label="Job ID" value={jobId} onChangeText={setJobId} placeholder="Paste job ID" />
           <Input label="Subject (optional)" value={subject} onChangeText={setSubject} placeholder="Topic summary" />
           <Input label="Category" value={category} onChangeText={setCategory} placeholder="General / Payments / Documents" />
           <Input label="Message" value={message} onChangeText={setMessage} placeholder="Write your inquiry..." multiline />
 
           <View style={styles.attachCard}>
-            <Text style={[styles.label, { color: '#1B233F' }]}>Attachment (optional)</Text>
-            <View style={styles.attachRow}>
-              <View style={styles.attachIcon}>
-                <Feather name="paperclip" size={20} color="#2574CA" />
+            <View style={styles.attachHeader}>
+              <View>
+                <Text style={[styles.label, { color: '#1B233F', fontFamily: t.typography.fontFamily.bold }]}>Attachment</Text>
+                <Text style={[styles.attachHint, { fontFamily: t.typography.fontFamily.medium }]}>Optional proof to give support more context.</Text>
               </View>
-              <Text style={[styles.file, { color: '#4D5F87' }]} numberOfLines={1}>
-                {fileName || 'No file selected'}
-              </Text>
+              <View style={styles.attachState}>
+                <Text style={[styles.attachStateText, { fontFamily: t.typography.fontFamily.bold }]}>{fileName ? 'Added' : 'Optional'}</Text>
+              </View>
             </View>
-            <View style={{ height: 10 }} />
-            <Button size="sm" title={uploading ? 'Uploading...' : 'Upload attachment'} onPress={pickAttachment} loading={uploading} />
+
+            <View style={styles.attachRow}>
+              <LinearGradient colors={t.colors.gradientButton as any} start={{ x: 0, y: 0.3 }} end={{ x: 1, y: 1 }} style={styles.attachIcon}>
+                <Feather name="paperclip" size={18} color="#FFFFFF" />
+              </LinearGradient>
+              <View style={styles.attachCopy}>
+                <Text style={[styles.file, { color: '#21345A', fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
+                  {fileName || 'No file selected'}
+                </Text>
+                <Text style={[styles.fileSub, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>
+                  {attachmentUrl ? 'Uploaded and ready to send' : 'You can attach screenshots, documents, or proofs'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.attachButtonWrap}>
+              <Button size="sm" title={uploading ? 'Uploading...' : 'Upload attachment'} onPress={pickAttachment} loading={uploading} />
+            </View>
           </View>
 
-          <View style={{ height: 14 }} />
-          <Button size="sm" title={submitting ? 'Submitting...' : 'Submit inquiry'} onPress={submit} loading={submitting} />
-        </Card>
+          <View style={styles.submitWrap}>
+            <Button size="sm" title={submitting ? 'Submitting...' : 'Submit inquiry'} onPress={submit} loading={submitting} />
+          </View>
+        </Animated.View>
       </ScrollView>
     </Screen>
   );
@@ -128,55 +288,288 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   scroll: { flex: 1 },
-  content: { flexGrow: 1, paddingHorizontal: 12, paddingTop: 10, paddingBottom: 130 },
-  headerWrap: { marginBottom: 10 },
-  headerRow: { flexDirection: 'row', alignItems: 'center' },
+  content: { flexGrow: 1, paddingHorizontal: 14, paddingTop: 10, paddingBottom: 130 },
+  pressed: { opacity: 0.92 },
+  headerWrap: { marginBottom: 12, flexDirection: 'row', alignItems: 'center', gap: 10 },
   backBtn: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#EAF2FF',
+    backgroundColor: '#EEF4FF',
     borderWidth: 1,
-    borderColor: '#C9D8F0',
-    marginRight: 8,
+    borderColor: '#D1DEF3',
   },
   backBtnHidden: { opacity: 0 },
   headerTextWrap: { flex: 1 },
-  h: { fontSize: 22, lineHeight: 24, fontWeight: '900' },
-  p: { marginTop: 3, fontWeight: '700', fontSize: 12, lineHeight: 16 },
-  formCard: {
-    borderRadius: 14,
-    borderColor: '#D5DEF3',
-    borderWidth: 1,
-    backgroundColor: '#F8FAFC',
-    shadowColor: '#5F82BA',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 2,
+  eyebrow: {
+    color: '#7485A8',
+    fontSize: 9,
+    lineHeight: 11,
+    letterSpacing: 2.1,
+    fontWeight: '900',
   },
+  h: { marginTop: 3, fontSize: 20, lineHeight: 24, fontWeight: '900' },
+  p: { marginTop: 4, fontWeight: '700', fontSize: 10, lineHeight: 15 },
+  liveChip: {
+    minHeight: 38,
+    borderRadius: 999,
+    paddingHorizontal: 13,
+    backgroundColor: '#F7FAFF',
+    borderWidth: 1,
+    borderColor: '#D4E0F2',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#1FCB7A',
+  },
+  liveText: { color: '#1B4B98', fontSize: 11, lineHeight: 14, fontWeight: '800' },
+  heroCard: {
+    borderRadius: 28,
+    borderWidth: 1,
+    borderColor: '#D3DFF3',
+    backgroundColor: '#F9FBFF',
+    padding: 16,
+    overflow: 'hidden',
+    marginBottom: 12,
+    shadowColor: '#4A6EAE',
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 5,
+  },
+  heroGlowA: {
+    position: 'absolute',
+    top: -70,
+    right: -22,
+    width: 188,
+    height: 188,
+    borderRadius: 94,
+    backgroundColor: 'rgba(76, 139, 255, 0.12)',
+  },
+  heroGlowB: {
+    position: 'absolute',
+    bottom: -26,
+    left: -18,
+    width: 132,
+    height: 132,
+    borderRadius: 66,
+    backgroundColor: 'rgba(91, 214, 190, 0.12)',
+  },
+  heroSweep: {
+    position: 'absolute',
+    top: -40,
+    bottom: -40,
+    width: 86,
+    backgroundColor: 'rgba(255,255,255,0.34)',
+  },
+  heroTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10 },
+  heroBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D7E2F4',
+    backgroundColor: '#FFFFFF',
+  },
+  heroBadgeText: {
+    color: '#1768B8',
+    fontSize: 9,
+    lineHeight: 11,
+    fontWeight: '800',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+  heroSignal: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: '#D7EAD9',
+    backgroundColor: '#FFFFFF',
+  },
+  heroSignalText: { color: '#118D4C', fontSize: 10, lineHeight: 13, fontWeight: '800' },
+  heroMain: { marginTop: 16, flexDirection: 'row', gap: 14 },
+  heroMainCompact: { gap: 10 },
+  heroCopyBlock: { flex: 1 },
+  heroTitle: { color: '#153375', fontSize: 22, lineHeight: 26, fontWeight: '900', maxWidth: 228 },
+  heroBody: { marginTop: 8, color: '#5D7096', fontSize: 11, lineHeight: 16, fontWeight: '700', maxWidth: 236 },
+  heroStatsRow: { marginTop: 14, flexDirection: 'row', gap: 9 },
+  heroStatCard: {
+    flex: 1,
+    minHeight: 76,
+    minWidth: 100,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D7E2F4',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    justifyContent: 'space-between',
+  },
+  heroStatIcon: { width: 22, height: 22, borderRadius: 8, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 4 },
+  heroStatValue: { fontSize: 16, lineHeight: 19, fontWeight: '900', textAlign: 'center' },
+  heroStatLabel: { color: '#657B9E', fontSize: 9, lineHeight: 11, fontWeight: '700', textAlign: 'center' },
+  heroVisual: {
+    width: 154,
+    alignItems: 'stretch',
+    height: 154,
+  },
+  heroVisualPanel: {
+    flex: 1,
+    borderRadius: 24,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D8E2F3',
+    padding: 14,
+    shadowColor: '#4168A8',
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 4,
+    overflow: 'hidden',
+  },
+  heroBubblePrimary: {
+    minHeight: 34,
+    borderRadius: 999,
+    backgroundColor: '#F2F7FF',
+    borderWidth: 1,
+    borderColor: '#D8E4F5',
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    alignSelf: 'flex-start',
+  },
+  heroBubblePrimaryText: {
+    color: '#1768B8',
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800',
+  },
+  heroBubbleSecondary: {
+    marginTop: 10,
+    minHeight: 30,
+    borderRadius: 16,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DCE7F8',
+    paddingHorizontal: 10,
+    justifyContent: 'center',
+    alignSelf: 'flex-end',
+  },
+  heroBubbleSecondaryText: {
+    color: '#6B7EA5',
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: '700',
+  },
+  heroTimeline: { marginTop: 14, gap: 8 },
+  heroTimelineBar: {
+    height: 8,
+    borderRadius: 999,
+    backgroundColor: '#DAE6F8',
+  },
+  heroTimelineBarWide: { width: '92%' },
+  heroTimelineBarMid: { width: '72%' },
+  heroTimelineBarShort: { width: '48%' },
+  heroFooterChip: {
+    marginTop: 14,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    backgroundColor: '#F2FCF8',
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  heroFooterChipText: { color: '#118D4C', fontSize: 9, lineHeight: 11, fontWeight: '800' },
+  formCard: {
+    borderRadius: 22,
+    backgroundColor: 'rgba(249,251,255,0.96)',
+    borderWidth: 1,
+    borderColor: '#D6E0F3',
+    padding: 14,
+    shadowColor: '#5373AA',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 3,
+  },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 10, marginBottom: 10 },
+  sectionEyebrow: {
+    color: '#7485A8',
+    fontSize: 9,
+    lineHeight: 11,
+    letterSpacing: 1.9,
+    fontWeight: '900',
+  },
+  sectionTitle: { marginTop: 3, color: '#153375', fontSize: 15, lineHeight: 18, fontWeight: '900' },
+  sectionChip: {
+    minHeight: 30,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    backgroundColor: '#EEF4FF',
+    borderWidth: 1,
+    borderColor: '#D5E0F4',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+  },
+  sectionChipText: { color: '#1D5FD2', fontSize: 9, lineHeight: 11, fontWeight: '800' },
   attachCard: {
     marginTop: 6,
-    borderRadius: 10,
+    borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#D3DEF3',
-    backgroundColor: '#EEF4FE',
-    padding: 10,
+    borderColor: '#D6E0F4',
+    backgroundColor: '#F4F8FF',
+    padding: 12,
   },
-  label: { fontWeight: '800', marginBottom: 6, fontSize: 13 },
+  attachHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: 10,
+    marginBottom: 10,
+  },
+  label: { fontWeight: '800', marginBottom: 3, fontSize: 12, lineHeight: 15 },
+  attachHint: { color: '#6D81A7', fontSize: 10, lineHeight: 14, fontWeight: '600', maxWidth: 220 },
+  attachState: {
+    minHeight: 28,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D6E0F4',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachStateText: { color: '#1D5FD2', fontSize: 9, lineHeight: 11, fontWeight: '800' },
   attachRow: { flexDirection: 'row', alignItems: 'center' },
   attachIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 9,
-    borderWidth: 1,
-    borderColor: '#C9D8F0',
-    backgroundColor: '#EAF2FF',
+    width: 36,
+    height: 36,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 10,
   },
-  file: { fontWeight: '700', flex: 1, fontSize: 12 },
+  attachCopy: { flex: 1 },
+  file: { fontWeight: '700', flex: 1, fontSize: 11, lineHeight: 14 },
+  fileSub: { marginTop: 2, color: '#7184AA', fontSize: 9, lineHeight: 11, fontWeight: '600' },
+  attachButtonWrap: { marginTop: 12 },
+  submitWrap: { marginTop: 14 },
 });

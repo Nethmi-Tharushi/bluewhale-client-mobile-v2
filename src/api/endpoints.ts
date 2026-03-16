@@ -9,6 +9,7 @@ export const Endpoints = {
   signup: '/users/signup',
   profile: '/users/profile',
   updateProfile: '/users/profile',
+  userDocuments: '/users/documents',
   changePassword: '/users/change-password',
   deleteAccount: '/users/delete-account',
 
@@ -27,7 +28,7 @@ export const Endpoints = {
   // Invoices
   myInvoices: '/sales-admin/invoices',
   invoiceById: (id: string) => `/sales-admin/invoices/${id}`,
-  invoicePdf: (id: string) => `/sales-admin/invoices/${id}/pdf`,
+  invoicePdf: (id: string) => `/users/invoices/${id}/pdf`,
   markPaid: (id: string) => `/sales-admin/invoices/${id}/mark-paid`,
 
   // Inquiries
@@ -35,10 +36,18 @@ export const Endpoints = {
   myInquiries: '/inquiries/my',
   allInquiries: '/inquiries',
 
+  // Meetings
+  meetings: '/meetings',
+
   // Chat
   chatAdmins: '/chats/admins',
   chatMessagesWithAdmin: (adminId: string) => `/chats/user/messages/${adminId}`,
   sendMessageToAdmin: (adminId: string) => `/chats/messages/${adminId}`,
+
+  // Tasks
+  tasks: '/tasks',
+  taskComplete: (taskId: string) => `/tasks/${taskId}/complete`,
+  uploadTaskFiles: '/tasks/upload/task-files',
 
   // Uploads
   upload: '/upload',

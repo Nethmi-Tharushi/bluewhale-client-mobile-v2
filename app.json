@@ -2,14 +2,15 @@
   "expo": {
     "name": "Blue Whale Migration",
     "slug": "bluewhale-client-mobile",
-    "version": "1.0.3",
+    "scheme": "bluewhale",
+    "version": "1.0.10",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/icon-app-safe.png",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "image": "./assets/icon.png",
+      "image": "./assets/splash-brand-lockup.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0b1220"
+      "backgroundColor": "#081A56"
     },
     "assetBundlePatterns": [
       "**/*"
@@ -17,22 +18,40 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.bluewhale.client",
-      "buildNumber": "3"
+      "buildNumber": "10"
     },
     "android": {
       "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0b1220"
+        "foregroundImage": "./assets/adaptive-icon-brand.png",
+        "backgroundColor": "#F5F7FB"
       },
       "package": "com.bluewhale.client",
-      "versionCode": 3
+      "versionCode": 10
     },
-    "plugins": [],
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#081A56",
+          "image": "./assets/splash-brand-lockup.png",
+          "imageWidth": 420,
+          "android": {
+            "backgroundColor": "#081A56",
+            "image": "./assets/adaptive-icon-brand.png",
+            "imageWidth": 320
+          },
+          "dark": {
+            "backgroundColor": "#081A56",
+            "image": "./assets/splash-brand-lockup.png"
+          }
+        }
+      ]
+    ],
     "extra": {
       "eas": {
-        "projectId": "568f19b1-0f28-46c7-904b-1f4739307842"
+        "projectId": "b48cd862-6f84-4302-96e6-0fe1e840d2a9"
       }
     },
-    "owner": "neth_tharu"
+    "owner": "tharu_neth"
   }
 }

@@ -7,3 +7,4 @@ export { default as EmptyState } from './EmptyState';
 export { default as ListItem } from './ListItem';
 export { default as Badge } from './Badge';
 export { default as Skeleton } from './Skeleton';
+export { default as PageDecor } from './PageDecor';
