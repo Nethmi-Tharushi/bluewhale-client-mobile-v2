@@ -2,6 +2,7 @@ import React from 'react';
 import { KeyboardAvoidingView, Platform, StatusBar, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useTheme } from '../../theme/ThemeProvider';
+import PageDecor from './PageDecor';
 
 export default function Screen({
   children,
@@ -21,6 +22,7 @@ export default function Screen({
 
   return (
     <View style={[styles.root, { backgroundColor: t.colors.background }]}>
+      <PageDecor />
       <StatusBar barStyle={t.isDark ? 'light-content' : 'dark-content'} />
       <SafeAreaView style={styles.safe} edges={['top', 'left', 'right', 'bottom']}>
         {header}

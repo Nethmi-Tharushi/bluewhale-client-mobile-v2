@@ -32,7 +32,7 @@ export default function UIButton({
   if (variant === 'primary') {
     return (
       <Pressable onPress={onPress} disabled={isDisabled} style={({ pressed }) => [pressed && { opacity: 0.92 }, isDisabled && styles.disabled]}>
-        <LinearGradient colors={['#233E9B', '#168EE5']} start={{ x: 0, y: 0.4 }} end={{ x: 1, y: 1 }} style={primaryButtonStyle}>
+        <LinearGradient colors={t.colors.gradientButton as any} start={{ x: 0, y: 0.4 }} end={{ x: 1, y: 1 }} style={primaryButtonStyle}>
           <View style={styles.row}>{loading ? <ActivityIndicator color={t.colors.textOnPrimary} /> : <Text style={[textStyle, { color: textColor }]}>{title}</Text>}</View>
         </LinearGradient>
       </Pressable>

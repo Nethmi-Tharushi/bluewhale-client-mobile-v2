@@ -18,8 +18,14 @@ import ChatRoomScreen from '../../screens/chat/ChatRoomScreen';
 import InquiryListScreen from '../../screens/inquiries/InquiryListScreen';
 import CreateInquiryScreen from '../../screens/inquiries/CreateInquiryScreen';
 import InquiryDetailsScreen from '../../screens/inquiries/InquiryDetailsScreen';
+import TasksListScreen from '../../screens/tasks/TasksListScreen';
+import TaskDetailsScreen from '../../screens/tasks/TaskDetailsScreen';
+import MeetingsListScreen from '../../screens/meetings/MeetingsListScreen';
+import MeetingDetailsScreen from '../../screens/meetings/MeetingDetailsScreen';
+import DocumentsScreen from '../../screens/documents/DocumentsScreen';
 import ProfileScreen from '../../screens/profile/ProfileScreen';
-import type { Invoice } from '../../types/models';
+import EditProfileScreen from '../../screens/profile/EditProfileScreen';
+import type { Invoice, Meeting, Task } from '../../types/models';
 
 export type JobsStackParamList = {
   JobsList: undefined;
@@ -44,11 +50,34 @@ export type InquiryStackParamList = {
   InquiryDetails: { inquiryId: string };
 };
 
+export type TasksStackParamList = {
+  TasksList: undefined;
+  TaskDetails: { taskId: string; task?: Task };
+};
+
+export type MeetingsStackParamList = {
+  MeetingsList: undefined;
+  MeetingDetails: { meetingId: string; meeting?: Meeting };
+};
+
+export type DocumentsStackParamList = {
+  DocumentsHome: undefined;
+};
+
+export type ProfileStackParamList = {
+  ProfileHome: undefined;
+  EditProfile: undefined;
+};
+
 const Tab = createBottomTabNavigator();
 const JobsStack = createNativeStackNavigator<JobsStackParamList>();
 const InvoicesStack = createNativeStackNavigator<InvoicesStackParamList>();
 const ChatStack = createNativeStackNavigator<ChatStackParamList>();
 const InquiryStack = createNativeStackNavigator<InquiryStackParamList>();
+const TasksStack = createNativeStackNavigator<TasksStackParamList>();
+const MeetingsStack = createNativeStackNavigator<MeetingsStackParamList>();
+const DocumentsStack = createNativeStackNavigator<DocumentsStackParamList>();
+const ProfileStack = createNativeStackNavigator<ProfileStackParamList>();
 
 function JobsNavigator() {
   const t = useTheme();
@@ -121,6 +150,73 @@ function InquiryNavigator() {
   );
 }
 
+function TasksNavigator() {
+  const t = useTheme();
+  return (
+    <TasksStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        headerStyle: { backgroundColor: t.colors.primary },
+        headerTintColor: t.colors.textOnPrimary,
+        headerTitleStyle: { fontWeight: '800' },
+      }}
+    >
+      <TasksStack.Screen name="TasksList" component={TasksListScreen} options={{ title: 'Tasks' }} />
+      <TasksStack.Screen name="TaskDetails" component={TaskDetailsScreen} options={{ title: 'Task Details' }} />
+    </TasksStack.Navigator>
+  );
+}
+
+function MeetingsNavigator() {
+  const t = useTheme();
+  return (
+    <MeetingsStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        headerStyle: { backgroundColor: t.colors.primary },
+        headerTintColor: t.colors.textOnPrimary,
+        headerTitleStyle: { fontWeight: '800' },
+      }}
+    >
+      <MeetingsStack.Screen name="MeetingsList" component={MeetingsListScreen} options={{ title: 'Meetings' }} />
+      <MeetingsStack.Screen name="MeetingDetails" component={MeetingDetailsScreen} options={{ title: 'Meeting Details' }} />
+    </MeetingsStack.Navigator>
+  );
+}
+
+function DocumentsNavigator() {
+  const t = useTheme();
+  return (
+    <DocumentsStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        headerStyle: { backgroundColor: t.colors.primary },
+        headerTintColor: t.colors.textOnPrimary,
+        headerTitleStyle: { fontWeight: '800' },
+      }}
+    >
+      <DocumentsStack.Screen name="DocumentsHome" component={DocumentsScreen} options={{ title: 'Documents' }} />
+    </DocumentsStack.Navigator>
+  );
+}
+
+function ProfileNavigator() {
+  const t = useTheme();
+  return (
+    <ProfileStack.Navigator
+      screenOptions={{
+        headerShown: false,
+        headerStyle: { backgroundColor: t.colors.primary },
+        headerTintColor: t.colors.textOnPrimary,
+        headerTitleStyle: { fontWeight: '800' },
+      }}
+    >
+      <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} options={{ title: 'Profile' }} />
+      <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: 'Edit Profile' }} />
+    </ProfileStack.Navigator>
+  );
+}
+
 function TabIcon({
   focused,
   active,
@@ -190,7 +286,7 @@ export default function AppNavigator() {
       />
       <Tab.Screen
         name="Me"
-        component={ProfileScreen}
+        component={ProfileNavigator}
         options={{
           tabBarIcon: ({ focused }) => <TabIcon focused={focused} active="user" inactive="user" />,
         }}
@@ -198,6 +294,27 @@ export default function AppNavigator() {
       <Tab.Screen
         name="Inquiries"
         component={InquiryNavigator}
+        options={{
+          tabBarButton: () => null,
+        }}
+      />
+      <Tab.Screen
+        name="Tasks"
+        component={TasksNavigator}
+        options={{
+          tabBarButton: () => null,
+        }}
+      />
+      <Tab.Screen
+        name="Meetings"
+        component={MeetingsNavigator}
+        options={{
+          tabBarButton: () => null,
+        }}
+      />
+      <Tab.Screen
+        name="Documents"
+        component={DocumentsNavigator}
         options={{
           tabBarButton: () => null,
         }}

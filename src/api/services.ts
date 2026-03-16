@@ -1,12 +1,49 @@
-import { api } from './client';
+import * as FileSystem from 'expo-file-system/legacy';
+import { api, ensureApiReady, isRetryableRequestError } from './client';
 import { Endpoints } from './endpoints';
 import { getToken } from '../utils/tokenStorage';
-import type { Application, ChatAdmin, ChatMessage, Inquiry, Invoice, Job } from '../types/models';
+import { ensureUploadBatchWithinLimit, ensureUploadSizeWithinLimit } from '../utils/uploadValidation';
+import type { Application, ChatAdmin, ChatMessage, DocumentGroups, Inquiry, Invoice, Job, Meeting, Task, TaskFile, UserDocument } from '../types/models';
 
 type UploadableFile = {
   uri: string;
   name: string;
   type?: string;
+  size?: number | null;
+};
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  gif: 'image/gif',
+  pdf: 'application/pdf',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  txt: 'text/plain',
+};
+
+const DOCUMENT_ALLOWED_MIME: Record<'photo' | 'passport' | 'drivingLicense' | 'cv', string[]> = {
+  photo: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'],
+  passport: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'],
+  drivingLicense: ['image/jpeg', 'image/jpg', 'image/png', 'image/gif'],
+  cv: ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'],
+};
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const retryOnceAfterWarmup = async <T,>(request: () => Promise<T>) => {
+  await ensureApiReady({ timeoutMs: 45000, background: true }).catch(() => undefined);
+
+  try {
+    return await request();
+  } catch (err) {
+    if (!isRetryableRequestError(err)) throw err;
+
+    await ensureApiReady({ force: true, timeoutMs: 45000, background: true }).catch(() => undefined);
+    await wait(1200);
+    return request();
+  }
 };
 
 // ---- helpers ----
@@ -31,6 +68,148 @@ const maybeFileNameToUrl = (value: string) => {
   if (!v) return '';
   if (looksLikeFileName(v) && !v.includes('/')) return toAbsoluteUrl(`/uploads/${v}`);
   return toAbsoluteUrl(v);
+};
+
+const getFileExtension = (value: string) => {
+  const cleaned = String(value || '')
+    .trim()
+    .split('?')[0]
+    .split('#')[0];
+  const dot = cleaned.lastIndexOf('.');
+  return dot >= 0 ? cleaned.slice(dot + 1).toLowerCase() : '';
+};
+
+const fileNameFromContentDisposition = (value: string) => {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+
+  const utfMatch = raw.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+  if (utfMatch?.[1]) {
+    try {
+      return decodeURIComponent(utfMatch[1]).replace(/^["']|["']$/g, '');
+    } catch {
+      return utfMatch[1].replace(/^["']|["']$/g, '');
+    }
+  }
+
+  const basicMatch = raw.match(/filename\s*=\s*("?)([^";]+)\1/i);
+  return basicMatch?.[2] ? basicMatch[2].trim() : '';
+};
+
+const bytesToBase64 = (bytes: Uint8Array) => {
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    const chunk = bytes.subarray(index, index + chunkSize);
+    binary += String.fromCharCode(...Array.from(chunk));
+  }
+  if (typeof btoa === 'function') return btoa(binary);
+  const BufferCtor = (globalThis as any)?.Buffer;
+  if (BufferCtor) return BufferCtor.from(binary, 'binary').toString('base64');
+  throw new Error('Base64 encoding is not available in this environment.');
+};
+
+const bytesToText = (bytes: Uint8Array) => {
+  try {
+    return new TextDecoder('utf-8').decode(bytes);
+  } catch {
+    return Array.from(bytes)
+      .map((byte) => String.fromCharCode(byte))
+      .join('');
+  }
+};
+
+const normalizeBinaryPayload = (payload: any): Uint8Array => {
+  if (!payload) return new Uint8Array();
+  if (payload instanceof ArrayBuffer) return new Uint8Array(payload);
+  if (ArrayBuffer.isView(payload)) return new Uint8Array(payload.buffer, payload.byteOffset, payload.byteLength);
+  if (typeof payload === 'string') return Uint8Array.from(payload, (char) => char.charCodeAt(0) & 0xff);
+  if (Array.isArray(payload)) return Uint8Array.from(payload);
+  return new Uint8Array();
+};
+
+const inferMimeType = (file: Pick<UploadableFile, 'name' | 'uri' | 'type'>, fallback?: string) => {
+  const explicit = String(file?.type || '').trim().toLowerCase();
+  if (explicit && explicit !== 'application/octet-stream' && explicit !== '*/*') return explicit;
+
+  const ext = getFileExtension(file?.name || '') || getFileExtension(file?.uri || '');
+  if (ext && MIME_BY_EXTENSION[ext]) return MIME_BY_EXTENSION[ext];
+  return fallback || 'application/octet-stream';
+};
+
+const ensureUploadableUri = async (file: UploadableFile) => {
+  const originalUri = String(file?.uri || '').trim();
+  if (!originalUri) return file;
+  if (/^file:\/\//i.test(originalUri)) {
+    return { ...file, type: inferMimeType(file) };
+  }
+
+  const extension = getFileExtension(file?.name || '') || getFileExtension(originalUri);
+  const safeExtension = extension || 'bin';
+  const safeName = String(file?.name || `upload-${Date.now()}.${safeExtension}`)
+    .replace(/[^\w.\-]+/g, '_')
+    .replace(/^_+|_+$/g, '');
+  const target = `${FileSystem.cacheDirectory || ''}uploads/${Date.now()}-${safeName || `file.${safeExtension}`}`;
+
+  try {
+    const dir = target.slice(0, target.lastIndexOf('/'));
+    if (dir) {
+      await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => undefined);
+    }
+    await FileSystem.copyAsync({ from: originalUri, to: target });
+    return {
+      ...file,
+      uri: target,
+      name: safeName || file.name,
+      type: inferMimeType({ ...file, uri: target }),
+    };
+  } catch {
+    return { ...file, type: inferMimeType(file) };
+  }
+};
+
+const normalizeUploadFiles = async (files: UploadableFile[], fallbackMime?: string) => {
+  const normalized = await Promise.all(
+    (files || []).map(async (file) => {
+      const prepared = await ensureUploadableUri(file);
+      await ensureUploadSizeWithinLimit(prepared);
+      return {
+        ...prepared,
+        type: inferMimeType(prepared, fallbackMime),
+      };
+    })
+  );
+  return normalized.filter((file) => !!String(file?.uri || '').trim());
+};
+
+const normalizeDocumentUploadFiles = async (
+  docType: 'photo' | 'passport' | 'drivingLicense' | 'cv',
+  files: UploadableFile[]
+) => {
+  const normalized = await normalizeUploadFiles(files, docType === 'cv' ? 'application/pdf' : 'image/jpeg');
+  const allowed = DOCUMENT_ALLOWED_MIME[docType];
+
+  return normalized.map((file) => {
+    const explicit = String(file?.type || '').trim().toLowerCase();
+    const inferred = inferMimeType(file, docType === 'cv' ? 'application/pdf' : 'image/jpeg').toLowerCase();
+    const finalType =
+      (allowed.includes(explicit) && explicit) ||
+      (allowed.includes(inferred) && inferred) ||
+      '';
+
+    if (!finalType) {
+      const name = String(file?.name || 'Selected file').trim();
+      const allowedLabel = docType === 'cv' ? 'PDF, DOC, or DOCX' : 'JPG, PNG, or GIF';
+      const err: any = new Error(`${name} is not a supported ${docType === 'cv' ? 'CV' : 'image'} format. Use ${allowedLabel}.`);
+      err.userMessage = err.message;
+      throw err;
+    }
+
+    return {
+      ...file,
+      type: finalType,
+    };
+  });
 };
 
 const extractUploadUrl = (payload: any): string | undefined => {
@@ -106,6 +285,105 @@ const extractInvoices = (payload: any): Invoice[] => {
   return [];
 };
 
+const extractTasks = (payload: any): Task[] => {
+  if (Array.isArray(payload)) return payload as Task[];
+  if (!payload || typeof payload !== 'object') return [];
+
+  const directKeys = ['tasks', 'items', 'rows', 'docs', 'records', 'results', 'data'];
+  for (const key of directKeys) {
+    const value = (payload as any)?.[key];
+    if (Array.isArray(value)) return value as Task[];
+  }
+
+  for (const value of Object.values(payload)) {
+    if (Array.isArray(value)) return value as Task[];
+    if (value && typeof value === 'object') {
+      const nested = extractTasks(value);
+      if (nested.length) return nested;
+    }
+  }
+
+  return [];
+};
+
+const extractMeetings = (payload: any): Meeting[] => {
+  if (Array.isArray(payload)) return payload as Meeting[];
+  if (!payload || typeof payload !== 'object') return [];
+
+  const directKeys = ['meetings', 'items', 'rows', 'records', 'results', 'data'];
+  for (const key of directKeys) {
+    const value = (payload as any)?.[key];
+    if (Array.isArray(value)) return value as Meeting[];
+  }
+
+  for (const value of Object.values(payload)) {
+    if (Array.isArray(value)) return value as Meeting[];
+    if (value && typeof value === 'object') {
+      const nested = extractMeetings(value);
+      if (nested.length) return nested;
+    }
+  }
+
+  return [];
+};
+
+const emptyDocumentGroups = (): DocumentGroups => ({
+  photo: [],
+  passport: [],
+  drivingLicense: [],
+  cv: [],
+});
+
+const normalizeDocumentGroups = (payload: any): DocumentGroups => {
+  const grouped = emptyDocumentGroups();
+  const source = payload?.documents && typeof payload.documents === 'object' ? payload.documents : payload;
+
+  if (!source || typeof source !== 'object') return grouped;
+
+  (Object.keys(grouped) as Array<keyof DocumentGroups>).forEach((key) => {
+    const value = source?.[key];
+    if (Array.isArray(value)) {
+      grouped[key] = value as UserDocument[];
+    }
+  });
+
+  return grouped;
+};
+
+const extractTaskFiles = (payload: any): TaskFile[] => {
+  if (!payload) return [];
+  if (Array.isArray(payload)) return payload as TaskFile[];
+  if (typeof payload !== 'object') return [];
+
+  const directKeys = ['files', 'items', 'uploads', 'documents', 'attachments', 'data', 'result'];
+  for (const key of directKeys) {
+    const value = (payload as any)?.[key];
+    if (Array.isArray(value)) return value as TaskFile[];
+    if (value && typeof value === 'object') {
+      const nested = extractTaskFiles(value);
+      if (nested.length) return nested;
+    }
+  }
+
+  const directUrl = extractUploadUrl(payload);
+  if (directUrl) return [payload as TaskFile];
+
+  return [];
+};
+
+const normalizeTaskFile = (file: any): TaskFile => {
+  const url = extractUploadUrl(file) || String(file?.fileUrl || file?.url || file?.path || '').trim();
+  const name =
+    String(file?.fileName || file?.name || file?.filename || '').trim() ||
+    (url ? url.split('/').pop()?.split('?')[0] || 'Uploaded file' : 'Uploaded file');
+
+  return {
+    ...(file && typeof file === 'object' ? file : {}),
+    fileName: name,
+    fileUrl: url,
+  } as TaskFile;
+};
+
 const normalizeInvoice = (inv: any): Invoice => {
   if (!inv || typeof inv !== 'object') return inv as Invoice;
   const normalized: any = { ...inv };
@@ -158,9 +436,27 @@ const extractInvoice = (payload: any): Invoice | null => {
   return null;
 };
 
+const looksLikePdfPayload = (payload: any) => {
+  if (!payload) return false;
+  if (typeof payload === 'string') return payload.trimStart().startsWith('%PDF-');
+  if (typeof ArrayBuffer !== 'undefined') {
+    if (payload instanceof ArrayBuffer) return payload.byteLength > 4;
+    if (ArrayBuffer.isView(payload)) return payload.byteLength > 4;
+  }
+  return false;
+};
+
 export const AuthService = {
   async login(email: string, password: string) {
-    const res = await api.post(Endpoints.login, { email, password });
+    const res = await retryOnceAfterWarmup(() =>
+      api.post(
+        Endpoints.login,
+        { email, password },
+        {
+          timeout: 45000,
+        }
+      )
+    );
     return unwrap<{ token: string; user: any }>(res);
   },
   async signup(payload: { name: string; email: string; password: string; phone?: string; userType?: string }) {
@@ -180,8 +476,57 @@ export const AuthService = {
     return unwrap<any>(res);
   },
   async updateProfile(payload: any) {
-    const res = await api.put(Endpoints.updateProfile, payload);
+    const res = await retryOnceAfterWarmup(() =>
+      api.put(Endpoints.updateProfile, payload, {
+        timeout: 45000,
+      })
+    );
     return unwrap<any>(res);
+  },
+  async updateProfileMultipart(form: FormData, onUploadProgress?: (progressEvent: any) => void) {
+    const request = () =>
+      api.put(Endpoints.updateProfile, form, {
+        headers: { Accept: 'application/json' },
+        onUploadProgress,
+        timeout: 60000,
+      });
+
+    try {
+      const res = await retryOnceAfterWarmup(request);
+      return unwrap<any>(res);
+    } catch (err: any) {
+      if (!isRetryableRequestError(err)) throw err;
+
+      // React Native Android can still fail generic multipart axios requests on some devices.
+      const token = await getToken();
+      const absoluteUrl = `${String(api.defaults.baseURL || '').replace(/\/+$/, '')}${Endpoints.updateProfile}`;
+      const response = await fetch(absoluteUrl, {
+        method: 'PUT',
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: form,
+      });
+
+      const text = await response.text();
+      let payload: any = text;
+      try {
+        payload = text ? JSON.parse(text) : {};
+      } catch {
+        // Keep string payload.
+      }
+
+      if (!response.ok) {
+        const fallbackErr: any = new Error(
+          payload?.message || payload?.error || `HTTP ${response.status}`
+        );
+        fallbackErr.response = { status: response.status, data: payload };
+        throw fallbackErr;
+      }
+
+      return payload?.data?.data ?? payload?.data?.items ?? payload?.data?.result ?? payload;
+    }
   },
   async changePassword(payload: { currentPassword: string; newPassword: string }) {
     const res = await api.post(Endpoints.changePassword, payload);
@@ -210,6 +555,8 @@ export const JobsService = {
 
 export const UploadService = {
   async uploadFile(file: { uri: string; name: string; type?: string }) {
+    await ensureUploadSizeWithinLimit(file);
+
     const resolveEndpointUrl = (endpoint: string) => {
       if (/^https?:\/\//i.test(endpoint)) return endpoint;
       const base = String(api.defaults.baseURL || '').replace(/\/+$/, '');
@@ -361,6 +708,107 @@ export const UploadService = {
   },
 };
 
+export const DocumentsService = {
+  async list(params?: { managedCandidateId?: string }) {
+    const res = await retryOnceAfterWarmup(() =>
+      api.get(Endpoints.userDocuments, params?.managedCandidateId ? { params } : undefined)
+    );
+    return normalizeDocumentGroups(unwrap<any>(res));
+  },
+  async upload(payload: {
+    managedCandidateId?: string;
+    filesByType: Partial<Record<'photo' | 'passport' | 'drivingLicense' | 'cv', Array<{ uri: string; name: string; type?: string }>>>;
+  }) {
+    const normalizedEntries = (
+      await Promise.all(
+        (
+          Object.entries(payload.filesByType) as Array<
+            ['photo' | 'passport' | 'drivingLicense' | 'cv', Array<{ uri: string; name: string; type?: string }> | undefined]
+          >
+        ).map(async ([fieldName, files]) => {
+          const normalizedFiles = await normalizeDocumentUploadFiles(fieldName, (files || []) as UploadableFile[]);
+          return [fieldName, normalizedFiles] as const;
+        })
+      )
+    ).filter(([, files]) => files.length > 0);
+
+    if (!normalizedEntries.length) {
+      const err: any = new Error('No files provided for upload.');
+      err.userMessage = err.message;
+      throw err;
+    }
+
+    const buildForm = (fieldName: 'photo' | 'passport' | 'drivingLicense' | 'cv', files: UploadableFile[]) => {
+      const form = new FormData();
+      files.forEach((file) => {
+        // @ts-ignore react-native FormData file shape
+        form.append(fieldName, { uri: file.uri, name: file.name, type: file.type || 'application/octet-stream' });
+      });
+      return form;
+    };
+
+    const absoluteUrl = `${String(api.defaults.baseURL || '').replace(/\/+$/, '')}${Endpoints.userDocuments}`;
+    const token = await getToken();
+    let latestGroups: DocumentGroups | null = null;
+
+    for (const [fieldName, files] of normalizedEntries) {
+      const request = () =>
+        api.post(Endpoints.userDocuments, buildForm(fieldName, files), {
+          headers: { Accept: 'application/json' },
+          timeout: 60000,
+        });
+
+      try {
+        const res = await retryOnceAfterWarmup(request);
+        latestGroups = normalizeDocumentGroups(unwrap<any>(res));
+        continue;
+      } catch (axiosErr: any) {
+        const response = await fetch(absoluteUrl, {
+          method: 'POST',
+          headers: {
+            Accept: 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: buildForm(fieldName, files),
+        });
+
+        const text = await response.text();
+        let parsed: any = text;
+        try {
+          parsed = text ? JSON.parse(text) : {};
+        } catch {
+          // Keep string payload.
+        }
+
+        if (!response.ok) {
+          const axiosDetail =
+            typeof axiosErr?.response?.data === 'string'
+              ? axiosErr.response.data
+              : axiosErr?.response?.data && typeof axiosErr.response.data === 'object'
+                ? JSON.stringify(axiosErr.response.data)
+                : axiosErr?.userMessage || axiosErr?.message || 'unknown axios error';
+          const fetchDetail =
+            typeof parsed === 'string' ? parsed : parsed && typeof parsed === 'object' ? JSON.stringify(parsed) : `HTTP ${response.status}`;
+          const fallbackErr: any = new Error(`Failed to upload ${fieldName}. Axios: ${axiosDetail}. Fetch: ${fetchDetail}`);
+          fallbackErr.response = { status: response.status, data: parsed };
+          fallbackErr.userMessage = fallbackErr.message;
+          throw fallbackErr;
+        }
+
+        latestGroups = normalizeDocumentGroups(parsed?.data?.data ?? parsed?.data?.items ?? parsed?.data?.result ?? parsed);
+      }
+    }
+
+    return latestGroups || (await DocumentsService.list());
+  },
+  async remove(documentId: string, params?: { managedCandidateId?: string }) {
+    const res = await retryOnceAfterWarmup(() =>
+      api.delete(`${Endpoints.userDocuments}/${documentId}`, params?.managedCandidateId ? { params } : undefined)
+    );
+    return normalizeDocumentGroups(unwrap<any>(res));
+  },
+};
+
 export const ApplicationsService = {
   async apply(jobId: string, payload: { note?: string; cvUrl?: string }) {
     const note = payload?.note?.trim() || undefined;
@@ -464,42 +912,74 @@ export const InvoicesService = {
       new Set([
         `/users/invoices/${invoiceId}/pdf`,
         `/users/me/invoices/${invoiceId}/pdf`,
+        `/users/invoices/my/${invoiceId}/pdf`,
         `/invoices/${invoiceId}/pdf`,
+        `/invoices/my/${invoiceId}/pdf`,
+        `/sales-admin/invoices/${invoiceId}/pdf`,
+        Endpoints.invoicePdf(invoiceId),
       ])
     );
+
+    const directPdfCandidates: Array<{ base64: string; fileName: string }> = [];
+    const resolvedCandidates: string[] = [];
     let lastErr: any;
-    const attempts: string[] = [];
+
     for (const endpoint of endpoints) {
       try {
-        const res = await api.get(endpoint);
-        const payload = unwrap<any>(res);
-        if (typeof payload === 'string') return { url: payload };
-        const url = extractUploadUrl(payload);
-        if (url) return { ...(payload && typeof payload === 'object' ? payload : {}), url };
-        return payload;
+        const res = await api.get(endpoint, {
+          responseType: 'arraybuffer' as any,
+          transformResponse: [(data) => data],
+          timeout: 30000,
+        });
+        const contentType = String((res as any)?.headers?.['content-type'] || '').toLowerCase();
+        const contentDisposition = String((res as any)?.headers?.['content-disposition'] || '');
+        const bytes = normalizeBinaryPayload(res?.data);
+        const base64 = bytes.length ? bytesToBase64(bytes) : '';
+
+        if (contentType.includes('pdf') || base64.startsWith('JVBERi0')) {
+          directPdfCandidates.push({
+            base64,
+            fileName: fileNameFromContentDisposition(contentDisposition) || `invoice-${invoiceId}.pdf`,
+          });
+          continue;
+        }
+
+        const raw = bytesToText(bytes).trim();
+        if (raw) {
+          let payload: any = raw;
+          try {
+            payload = JSON.parse(raw);
+          } catch {
+            // Keep raw string.
+          }
+          const resolvedUrl = extractUploadUrl(payload);
+          if (resolvedUrl) resolvedCandidates.push(resolvedUrl);
+        }
+
+        resolvedCandidates.push(endpoint);
       } catch (err: any) {
         const status = Number(err?.response?.status || 0);
         if (!status) throw err;
-        attempts.push(`${endpoint} -> ${status}`);
         lastErr = err;
+        resolvedCandidates.push(endpoint);
       }
     }
-    if (lastErr) {
-      const msg = String(lastErr?.response?.data?.message || lastErr?.response?.data?.error || lastErr?.message || '');
-      if (msg.toLowerCase().includes('admin not found')) {
-        const e = new Error('PDF is not available for client users on this endpoint yet.');
-        (e as any).userMessage = e.message;
-        throw e;
-      }
-      const status = Number(lastErr?.response?.status || 0);
-      if (status === 404) {
-        const e = new Error(`Invoice PDF endpoint is not available for client API yet. Tried: ${attempts.join(' | ')}`);
-        (e as any).userMessage = e.message;
-        throw e;
-      }
-      throw lastErr;
+
+    if (directPdfCandidates.length) {
+      return {
+        base64: directPdfCandidates[0].base64,
+        fileName: directPdfCandidates[0].fileName,
+        directDownload: true,
+      };
     }
-    throw new Error('Unable to get invoice PDF URL');
+ 
+    const result = {
+      url: resolvedCandidates[0] || Endpoints.invoicePdf(invoiceId),
+      candidates: Array.from(new Set(resolvedCandidates)),
+      directDownload: true,
+    };
+    if (lastErr && !result.candidates.length) throw lastErr;
+    return result;
   },
   async markPaid(invoiceId: string, payload?: { reference?: string; notes?: string; slipUrl?: string; file?: UploadableFile } | any) {
     const endpoints = Array.from(
@@ -532,6 +1012,7 @@ export const InvoicesService = {
             uri: payload.file.uri,
             name: payload.file.name || `payment-proof-${Date.now()}.jpg`,
             type: payload.file.type || 'application/octet-stream',
+            size: payload.file.size ?? null,
           }
         : undefined;
 
@@ -539,6 +1020,7 @@ export const InvoicesService = {
 
     const submitMultipart = async (endpoint: string) => {
       if (!file) return null;
+      await ensureUploadSizeWithinLimit(file);
       for (const field of fileFieldCandidates) {
         const form = new FormData();
         if (reference) form.append('reference', reference);
@@ -598,6 +1080,168 @@ export const InquiriesService = {
   async getAll() {
     const res = await api.get(Endpoints.allInquiries);
     return unwrap<Inquiry[]>(res);
+  },
+};
+
+export const MeetingsService = {
+  async list(params?: { managedCandidateId?: string }) {
+    const res = await api.get(Endpoints.meetings, params?.managedCandidateId ? { params } : undefined);
+    const payload = unwrap<any>(res);
+    const meetings = extractMeetings(payload);
+    return meetings.length ? meetings : (Array.isArray(payload) ? (payload as Meeting[]) : []);
+  },
+};
+
+export const TasksService = {
+  async list(params?: { managedCandidateId?: string }) {
+    const res = await api.get(Endpoints.tasks, params?.managedCandidateId ? { params } : undefined);
+    const payload = unwrap<any>(res);
+    const list = extractTasks(payload);
+    return list.length ? list : (Array.isArray(payload) ? (payload as Task[]) : []);
+  },
+  async uploadTaskFiles(files: Array<{ uri: string; name: string; type?: string }>) {
+    if (!files?.length) return [] as TaskFile[];
+    await ensureApiReady({ timeoutMs: 45000, background: true }).catch(() => undefined);
+    await ensureUploadBatchWithinLimit(files);
+
+    const endpoints = Array.from(
+      new Set([Endpoints.uploadTaskFiles, '/tasks/upload/files', '/tasks/files/upload', '/tasks/upload', Endpoints.upload])
+    );
+    const fieldCandidates = ['files', 'file', 'attachments', 'documents'];
+
+    const buildForm = (fieldName: string) => {
+      const form = new FormData();
+      for (const file of files) {
+        // @ts-ignore react-native FormData file shape
+        form.append(fieldName, { uri: file.uri, name: file.name, type: file.type || 'application/octet-stream' });
+      }
+      return form;
+    };
+
+    const normalizeResponse = (payload: any) => {
+      const uploaded = extractTaskFiles(payload).map(normalizeTaskFile).filter((item) => !!item.fileUrl);
+      return uploaded;
+    };
+
+    const axiosErrors: string[] = [];
+    let lastNetworkErr: any;
+
+    for (const endpoint of endpoints) {
+      for (const fieldName of fieldCandidates) {
+        try {
+          const res = await api.post(endpoint, buildForm(fieldName), {
+            headers: { Accept: 'application/json' },
+            timeout: 60000,
+          });
+          const payload = unwrap<any>(res);
+          const uploaded = normalizeResponse(payload);
+          if (uploaded.length) return uploaded;
+        } catch (err: any) {
+          const status = Number(err?.response?.status || 0);
+          const body = err?.response?.data;
+          const detail =
+            typeof body === 'string'
+              ? body.replace(/\s+/g, ' ').slice(0, 140)
+              : body && typeof body === 'object'
+                ? JSON.stringify(body).slice(0, 140)
+                : err?.message || 'unknown error';
+          axiosErrors.push(`[${endpoint}][${fieldName}] ${status || 'ERR'} ${detail}`);
+          if (!status) lastNetworkErr = err;
+        }
+      }
+    }
+
+    const token = await getToken();
+    const fetchErrors: string[] = [];
+    const resolveEndpointUrl = (endpoint: string) => {
+      if (/^https?:\/\//i.test(endpoint)) return endpoint;
+      const base = String(api.defaults.baseURL || '').replace(/\/+$/, '');
+      if (!base) return endpoint;
+      return endpoint.startsWith('/') ? `${base}${endpoint}` : `${base}/${endpoint}`;
+    };
+
+    for (const endpoint of endpoints) {
+      for (const fieldName of fieldCandidates) {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 60000);
+        try {
+          const response = await fetch(resolveEndpointUrl(endpoint), {
+            method: 'POST',
+            headers: {
+              Accept: 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: buildForm(fieldName),
+            signal: controller.signal,
+          });
+
+          const text = await response.text();
+          let payload: any = text;
+          try {
+            payload = text ? JSON.parse(text) : {};
+          } catch {
+            // Keep raw payload.
+          }
+
+          if (!response.ok) {
+            throw Object.assign(new Error(`HTTP ${response.status}`), {
+              response: { status: response.status, data: payload },
+            });
+          }
+
+          const unwrapped = payload?.data?.data ?? payload?.data?.items ?? payload?.data?.result ?? payload;
+          const uploaded = normalizeResponse(unwrapped);
+          if (uploaded.length) return uploaded;
+        } catch (err: any) {
+          const status = Number(err?.response?.status || 0);
+          const body = err?.response?.data;
+          const detail =
+            typeof body === 'string'
+              ? body.replace(/\s+/g, ' ').slice(0, 140)
+              : body && typeof body === 'object'
+                ? JSON.stringify(body).slice(0, 140)
+                : err?.message || 'unknown error';
+          fetchErrors.push(`[fetch ${endpoint}][${fieldName}] ${status || 'ERR'} ${detail}`);
+        } finally {
+          clearTimeout(timeoutId);
+        }
+      }
+    }
+
+    // Final fallback: use the generic upload flow file-by-file, then attach the returned URLs to the task.
+    try {
+      const uploaded = [] as TaskFile[];
+      for (const file of files) {
+        const result = await UploadService.uploadFile(file);
+        const normalized = normalizeTaskFile({
+          ...result,
+          fileName: file.name,
+          fileUrl: result?.url || result?.fileUrl || result?.path || result?.documentUrl || '',
+          mimeType: file.type || 'application/octet-stream',
+        });
+        if (normalized.fileUrl) uploaded.push(normalized);
+      }
+      if (uploaded.length) return uploaded;
+    } catch (err: any) {
+      const detail = String(err?.userMessage || err?.message || 'unknown error');
+      axiosErrors.push(`[generic upload fallback] ${detail}`);
+    }
+
+    const err: any = new Error(
+      lastNetworkErr
+        ? `Task upload failed after axios + fetch retries. Axios: ${axiosErrors.slice(0, 4).join(' | ')}. Fetch: ${fetchErrors.slice(0, 4).join(' | ')}`
+        : `Task upload failed across endpoint/field fallbacks. ${axiosErrors.slice(0, 6).join(' | ')} ${fetchErrors.slice(0, 4).join(' | ')}`
+    );
+    err.userMessage = err.message;
+    throw err;
+  },
+  async markComplete(taskId: string, payload?: { completionNotes?: string; completionFiles?: TaskFile[] }) {
+    const body = {
+      completionNotes: String(payload?.completionNotes || '').trim(),
+      completionFiles: Array.isArray(payload?.completionFiles) ? payload?.completionFiles : [],
+    };
+    const res = await api.put(Endpoints.taskComplete(taskId), body);
+    return unwrap<Task>(res);
   },
 };
 

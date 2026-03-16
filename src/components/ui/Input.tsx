@@ -12,6 +12,7 @@ export default function UIInput({
   multiline,
   error,
   icon,
+  editable = true,
 }: {
   label?: string;
   value: string;
@@ -22,6 +23,7 @@ export default function UIInput({
   multiline?: boolean;
   error?: string;
   icon?: React.ReactNode;
+  editable?: boolean;
 }) {
   const t = useTheme();
   const [showPassword, setShowPassword] = useState(false);
@@ -45,6 +47,7 @@ export default function UIInput({
           onChangeText={onChangeText}
           placeholder={placeholder}
           placeholderTextColor={t.colors.textMuted}
+          editable={editable}
           secureTextEntry={hidePassword}
           keyboardType={keyboardType}
           multiline={multiline}

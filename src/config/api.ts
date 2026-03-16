@@ -35,18 +35,29 @@ export const SOCKET_URL = resolvedOrigin;
 export const API_BASE_URL = `${resolvedOrigin}/api`;
 
 // Optional fallback origins for resilient retries in axios.
-export const API_BASE_URL_CANDIDATES = Array.from(
-  new Set(
-    [
-      API_BASE_URL,
-      `${androidEmulatorOrigin}/api`,
-      `${iosSimulatorOrigin}/api`,
-      `${physicalFallbackOrigin}/api`,
-      `${RENDER_FALLBACK_ORIGIN}/api`,
-      envOrigin ? `${envOrigin}/api` : '',
-    ].filter(Boolean)
-  )
-);
+// Release builds should only try production-safe hosts.
+export const API_BASE_URL_CANDIDATES = !__DEV__
+  ? Array.from(
+      new Set(
+        [
+          API_BASE_URL,
+          envOrigin ? `${envOrigin}/api` : '',
+          `${RENDER_FALLBACK_ORIGIN}/api`,
+        ].filter(Boolean)
+      )
+    )
+  : Array.from(
+      new Set(
+        [
+          API_BASE_URL,
+          `${androidEmulatorOrigin}/api`,
+          `${iosSimulatorOrigin}/api`,
+          `${physicalFallbackOrigin}/api`,
+          `${RENDER_FALLBACK_ORIGIN}/api`,
+          envOrigin ? `${envOrigin}/api` : '',
+        ].filter(Boolean)
+      )
+    );
 
 if (__DEV__) {
   console.log('[API Config] EXPO_PUBLIC_API_URL:', rawEnvUrl || '(not set)');
