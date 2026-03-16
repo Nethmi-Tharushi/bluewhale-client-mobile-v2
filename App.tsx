@@ -43,7 +43,7 @@ function ThemedApp() {
       };
 
   const linking = {
-    prefixes: [ExpoLinking.createURL('/'), 'bluewhale://'],
+    prefixes: [ExpoLinking.createURL('/'), 'bluewhale-agent://'],
     config: {
       screens: {
         App: {

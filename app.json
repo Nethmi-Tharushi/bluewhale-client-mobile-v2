@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Blue Whale Migration",
-    "slug": "bluewhale-client-mobile",
-    "scheme": "bluewhale",
+    "name": "bluewhale-agent-mobile",
+    "slug": "bluewhale-agent-mobile",
+    "scheme": "bluewhale-agent",
     "version": "1.0.10",
     "orientation": "portrait",
     "icon": "./assets/icon-app-safe.png",
@@ -17,7 +17,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.bluewhale.client",
+      "bundleIdentifier": "com.bluewhale.agent",
       "buildNumber": "10"
     },
     "android": {
@@ -25,7 +25,7 @@
         "foregroundImage": "./assets/adaptive-icon-brand.png",
         "backgroundColor": "#F5F7FB"
       },
-      "package": "com.bluewhale.client",
+      "package": "com.bluewhale.agent",
       "versionCode": 10
     },
     "plugins": [
@@ -47,11 +47,6 @@
         }
       ]
     ],
-    "extra": {
-      "eas": {
-        "projectId": "b48cd862-6f84-4302-96e6-0fe1e840d2a9"
-      }
-    },
     "owner": "tharu_neth"
   }
 }

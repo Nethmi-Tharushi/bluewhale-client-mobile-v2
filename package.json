@@ -1,5 +1,5 @@
 {
-  "name": "bluewhale-client-mobile",
+  "name": "bluewhale-agent-mobile",
   "version": "1.0.0",
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {

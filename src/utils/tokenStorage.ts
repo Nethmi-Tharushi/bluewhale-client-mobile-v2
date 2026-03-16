@@ -1,7 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 
-const KEY = 'bw_token_v1';
-const USER_KEY = 'bw_user_v1';
+const KEY = 'bluewhale_agent_token_v1';
+const USER_KEY = 'bluewhale_agent_user_v1';
 
 export async function setToken(token: string) {
   await SecureStore.setItemAsync(KEY, token);

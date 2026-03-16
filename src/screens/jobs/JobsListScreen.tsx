@@ -354,7 +354,7 @@ export default function JobsListScreen({ navigation }: Props) {
                       <View style={styles.brandPillMarkGlow} />
                       <Image source={require('../../../assets/blue-whale-favicon.png')} style={styles.brandPillIcon} resizeMode="contain" />
                     </Animated.View>
-                    <Text style={[styles.brandPillText, { fontFamily: t.typography.fontFamily.bold }]}>Blue Whale Migration Jobs</Text>
+                    <Text style={[styles.brandPillText, { fontFamily: t.typography.fontFamily.bold }]}>bluewhale-agent-mobile Jobs</Text>
                   </View>
                   <View style={styles.heroAvatarWrap}>
                     <Animated.View pointerEvents="none" style={[styles.heroAvatarOrbit, { transform: [{ rotate: avatarOrbitRotate }] }]}>

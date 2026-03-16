@@ -1,4 +1,4 @@
-package com.bluewhale.client
+package com.bluewhale.agent
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

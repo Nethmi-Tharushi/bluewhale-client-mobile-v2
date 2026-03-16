@@ -347,17 +347,17 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
   const onShare = async () => {
     try {
       const normalizedId = encodeURIComponent(String(jobId || '').trim());
-      const appDeepLink = `bluewhale://jobs/${normalizedId}`;
-      const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.bluewhale.client';
-      const appStoreUrl = 'https://apps.apple.com/us/search?term=Blue%20Whale%20Migration';
-      const androidIntentLink = `intent://jobs/${normalizedId}#Intent;scheme=bluewhale;package=com.bluewhale.client;S.browser_fallback_url=${encodeURIComponent(playStoreUrl)};end`;
+      const appDeepLink = `bluewhale-agent://jobs/${normalizedId}`;
+      const playStoreUrl = 'https://play.google.com/store/apps/details?id=com.bluewhale.agent';
+      const appStoreUrl = 'https://apps.apple.com/us/search?term=bluewhale-agent-mobile';
+      const androidIntentLink = `intent://jobs/${normalizedId}#Intent;scheme=bluewhale-agent;package=com.bluewhale.agent;S.browser_fallback_url=${encodeURIComponent(playStoreUrl)};end`;
       const openLink = Platform.OS === 'android' ? androidIntentLink : appDeepLink;
       await Share.share({
         message:
-          `Blue Whale Migration\n` +
+          `bluewhale-agent-mobile\n` +
           `${title} at ${company}\n\n` +
           `Open this job in app:\n${openLink}\n\n` +
-          `Download Blue Whale Migration:\n` +
+          `Download bluewhale-agent-mobile:\n` +
           `Google Play: ${playStoreUrl}\n` +
           `App Store: ${appStoreUrl}`,
         url: appDeepLink,

@@ -1,4 +1,4 @@
-package com.bluewhale.client
+package com.bluewhale.agent
 
 import android.app.Application
 import android.content.res.Configuration

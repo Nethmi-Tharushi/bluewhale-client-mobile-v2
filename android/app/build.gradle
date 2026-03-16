@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.bluewhale.client'
+    namespace 'com.bluewhale.agent'
     defaultConfig {
-        applicationId 'com.bluewhale.client'
+        applicationId 'com.bluewhale.agent'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 9
