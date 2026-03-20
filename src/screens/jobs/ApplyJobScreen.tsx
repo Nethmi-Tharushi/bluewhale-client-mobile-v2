@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Easing, Pressable, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { Feather } from '@expo/vector-icons';
@@ -8,6 +8,8 @@ import { ApplicationsService, JobsService, UploadService } from '../../api/servi
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { JobsStackParamList } from '../../navigation/app/AppNavigator';
 import { useTheme } from '../../theme/ThemeProvider';
+import { useAuthStore } from '../../context/authStore';
+import { getManagedCandidateId, getManagedCandidateName, isManagedViewActive } from '../../utils/managedView';
 import { ensureUploadSizeWithinLimit } from '../../utils/uploadValidation';
 
 type Props = NativeStackScreenProps<JobsStackParamList, 'ApplyJob'>;
@@ -16,6 +18,7 @@ export default function ApplyJobScreen({ navigation, route }: Props) {
   const t = useTheme();
   const { height } = useWindowDimensions();
   const { jobId } = route.params;
+  const user = useAuthStore((s) => s.user);
   const compact = height < 760;
   const scrollRef = useRef<any>(null);
   const noteSectionY = useRef(0);
@@ -28,6 +31,9 @@ export default function ApplyJobScreen({ navigation, route }: Props) {
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [jobTitle, setJobTitle] = useState('Job role');
+  const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
+  const managedCandidateName = useMemo(() => getManagedCandidateName(user), [user]);
+  const managedViewActive = useMemo(() => isManagedViewActive(user), [user]);
 
   const heroEntrance = useRef(new Animated.Value(0)).current;
   const cardEntrance = useRef(new Animated.Value(0)).current;
@@ -164,10 +170,10 @@ export default function ApplyJobScreen({ navigation, route }: Props) {
     }
     setSubmitting(true);
     try {
-      await ApplicationsService.apply(jobId, { note: note.trim() || undefined, cvUrl });
-      Alert.alert('Submitted', 'Your application has been submitted successfully.');
+      await ApplicationsService.apply(jobId, { note: note.trim() || undefined, cvUrl, candidateId: managedCandidateId || undefined, managedCandidateId: managedCandidateId || undefined });
+      Alert.alert('Submitted', managedViewActive ? `Application submitted for ${managedCandidateName}.` : 'Your application has been submitted successfully.');
       navigation.popToTop();
-      (navigation.getParent() as any)?.navigate('Jobs');
+      (navigation.getParent() as any)?.navigate('Applications');
     } catch (e: any) {
       Alert.alert('Submit failed', e?.userMessage || e?.message || 'Please try again');
     } finally {

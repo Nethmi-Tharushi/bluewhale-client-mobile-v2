@@ -25,6 +25,16 @@ export const Endpoints = {
   applyJob: (jobId: string) => `/applications/${jobId}`,
   myApplications: '/applications',
 
+  // Agent overview
+  agentOverview: '/overview/agent',
+  managedCandidateOverview: (candidateId: string) => `/overview/managed-candidate/${candidateId}`,
+  agentProfile: '/agent/profile',
+  agentUpdateProfile: (id: string) => `/agent/update/${id}`,
+  agentCandidates: '/agent/candidates',
+  agentCandidateById: (id: string) => `/agent/candidates/${id}`,
+  analyticsDashboard: '/analytics/dashboard',
+  analyticsExport: '/analytics/export',
+
   // Invoices
   myInvoices: '/sales-admin/invoices',
   invoiceById: (id: string) => `/sales-admin/invoices/${id}`,
@@ -38,9 +48,11 @@ export const Endpoints = {
 
   // Meetings
   meetings: '/meetings',
+  meetingById: (id: string) => `/meetings/${id}`,
 
   // Chat
   chatAdmins: '/chats/admins',
+  chatMe: '/chats/me',
   chatMessagesWithAdmin: (adminId: string) => `/chats/user/messages/${adminId}`,
   sendMessageToAdmin: (adminId: string) => `/chats/messages/${adminId}`,
 
@@ -54,7 +66,12 @@ export const Endpoints = {
 
   // Wishlist
   wishlist: '/wishlist',
+  wishlistStats: '/wishlist/stats',
   wishlistAdd: (jobId: string) => `/wishlist/${jobId}`,
   wishlistRemove: (jobId: string) => `/wishlist/${jobId}`,
   wishlistCheck: (jobId: string) => `/wishlist/check/${jobId}`,
 } as const;
+
+
+
+

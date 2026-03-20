@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Easing, Image, Linking, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -6,12 +6,16 @@ import * as IntentLauncher from 'expo-intent-launcher';
 import * as WebBrowser from 'expo-web-browser';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation } from '@react-navigation/native';
+import ManagedViewBanner from '../../components/managed/ManagedViewBanner';
 import { Button, EmptyState, Screen } from '../../components/ui';
 import { DocumentsService } from '../../api/services';
 import type { DocumentGroups, UserDocument } from '../../types/models';
 import { useTheme } from '../../theme/ThemeProvider';
 import { API_BASE_URL } from '../../config/api';
+import { useAuthStore } from '../../context/authStore';
 import { downloadResolvedRemoteFile } from '../../utils/remoteFileDownload';
+import { getManagedCandidateId, getManagedCandidateName, isManagedViewActive, stripManagedViewState } from '../../utils/managedView';
 
 type DocumentTypeKey = keyof DocumentGroups;
 type PickedFile = { uri: string; name: string; type?: string; size?: number | null };
@@ -175,7 +179,11 @@ const saveFileToAndroidFolder = async (sourceUri: string, fileName: string, mime
 
 export default function DocumentsScreen() {
   const t = useTheme();
+  const navigation = useNavigation<any>();
   const { width } = useWindowDimensions();
+  const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
+  const signIn = useAuthStore((s) => s.signIn);
   const compact = width < 390;
   const [documents, setDocuments] = useState<DocumentGroups>(emptyGroups());
   const [selectedFiles, setSelectedFiles] = useState<Partial<Record<DocumentTypeKey, PickedFile[]>>>({});
@@ -185,6 +193,9 @@ export default function DocumentsScreen() {
   const [uploading, setUploading] = useState(false);
   const [deletingId, setDeletingId] = useState('');
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const managedViewActive = useMemo(() => isManagedViewActive(user), [user]);
+  const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
+  const managedCandidateName = useMemo(() => getManagedCandidateName(user), [user]);
   const heroEntrance = useRef(new Animated.Value(0)).current;
   const contentEntrance = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
@@ -194,7 +205,7 @@ export default function DocumentsScreen() {
   const load = async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setLoading(true);
     try {
-      const grouped = await DocumentsService.list();
+      const grouped = await DocumentsService.list(managedCandidateId ? { managedCandidateId } : undefined);
       setDocuments(grouped);
     } catch (err: any) {
       const msg = String(err?.userMessage || err?.message || 'Unable to load documents');
@@ -208,7 +219,7 @@ export default function DocumentsScreen() {
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [managedCandidateId]);
 
   useEffect(() => {
     if (!message) return undefined;
@@ -257,6 +268,23 @@ export default function DocumentsScreen() {
     loops.forEach((loop) => loop.start());
     return () => loops.forEach((loop) => loop.stop());
   }, [contentEntrance, float, heroEntrance, pulse, sweep]);
+
+  const exitManagedView = async () => {
+    if (!token || !user) return;
+    await signIn({ token, user: stripManagedViewState(user) });
+  };
+
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    if (navigation.getParent()?.canGoBack()) {
+      navigation.getParent()?.goBack();
+      return;
+    }
+    navigation.getParent()?.navigate('Overview' as never);
+  }, [navigation]);
 
   const totalExistingCount = useMemo(
     () => DOCUMENT_TYPES.reduce((sum, item) => sum + (documents[item.key]?.length || 0), 0),
@@ -377,12 +405,15 @@ export default function DocumentsScreen() {
     setUploading(true);
     try {
       const grouped = await DocumentsService.upload({
+        managedCandidateId: managedCandidateId || undefined,
         filesByType: selectedFiles as any,
       });
+      const uploadedCount = totalSelectedCount;
       setDocuments(grouped);
       setSelectedFiles({});
       setPreviewUris({});
       setMessage({ type: 'success', text: 'Documents uploaded successfully.' });
+      Alert.alert('Uploaded', uploadedCount === 1 ? 'Document uploaded successfully.' : 'Documents uploaded successfully.');
     } catch (err: any) {
       setMessage({ type: 'error', text: String(err?.userMessage || err?.message || 'Upload failed') });
     } finally {
@@ -399,7 +430,7 @@ export default function DocumentsScreen() {
 
     setDeletingId(documentId);
     try {
-      const grouped = await DocumentsService.remove(documentId);
+      const grouped = await DocumentsService.remove(documentId, managedCandidateId ? { managedCandidateId } : undefined);
       setDocuments(grouped);
       setMessage({ type: 'success', text: 'Document deleted successfully.' });
     } catch (err: any) {
@@ -475,18 +506,31 @@ export default function DocumentsScreen() {
             }}
           />
         }
-      >
+        >
         <Animated.View style={[styles.header, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
           <View style={styles.headerTopRow}>
-            <View style={styles.headerBadge}>
-              <Feather name="archive" size={12} color="#1768B8" />
-              <Text style={[styles.headerBadgeText, { fontFamily: t.typography.fontFamily.bold }]}>Document desk</Text>
+            <View style={styles.headerLead}>
+              <Pressable onPress={handleBack} style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}>
+                <Feather name="arrow-left" size={18} color="#1B3890" />
+              </Pressable>
+              <View style={styles.headerBadge}>
+                <Feather name="archive" size={12} color="#1768B8" />
+                <Text style={[styles.headerBadgeText, { fontFamily: t.typography.fontFamily.bold }]}>Document desk</Text>
+              </View>
             </View>
             <View style={styles.liveChip}>
               <Animated.View style={[styles.liveDot, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
               <Text style={[styles.liveText, { fontFamily: t.typography.fontFamily.bold }]}>{loading ? 'Syncing' : 'Live'}</Text>
             </View>
           </View>
+
+          {managedViewActive ? (
+            <ManagedViewBanner
+              candidateName={managedCandidateName}
+              subtitle="Uploads, previews, and deletes are scoped to the active managed candidate"
+              onExit={exitManagedView}
+            />
+          ) : null}
 
           <View style={[styles.heroCard, compact && styles.heroCardCompact]}>
             <View style={styles.heroGlowA} />
@@ -711,6 +755,21 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 10,
     gap: 10,
+  },
+  headerLead: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF4FF',
+    borderWidth: 1,
+    borderColor: '#D1DEF3',
   },
   headerBadge: {
     flexDirection: 'row',
@@ -1201,4 +1260,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  pressed: {
+    opacity: 0.9,
+  },
 });
+

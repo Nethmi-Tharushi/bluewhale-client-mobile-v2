@@ -9,6 +9,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InvoicesStackParamList } from '../../navigation/app/AppNavigator';
 import { useTheme } from '../../theme/ThemeProvider';
 import { ensureUploadSizeWithinLimit } from '../../utils/uploadValidation';
+import { useAuthStore } from '../../context/authStore';
+import { getManagedCandidateId } from '../../utils/managedView';
 
 type Props = NativeStackScreenProps<InvoicesStackParamList, 'Payment'>;
 
@@ -16,6 +18,8 @@ export default function PaymentScreen({ navigation, route }: Props) {
   const t = useTheme();
   const { height, width } = useWindowDimensions();
   const { invoiceId } = route.params;
+  const user = useAuthStore((s) => s.user);
+  const managedCandidateId = getManagedCandidateId(user);
   const compact = height < 760;
   const narrow = width < 430;
 
@@ -125,7 +129,7 @@ export default function PaymentScreen({ navigation, route }: Props) {
   useEffect(() => {
     (async () => {
       try {
-        const inv = await InvoicesService.get(invoiceId);
+        const inv = await InvoicesService.get(invoiceId, managedCandidateId ? { managedCandidateId } : undefined);
         const { existingReference, existingSlipUrl } = detectProof(inv as any);
         if (existingReference) setReference(existingReference);
         if (existingSlipUrl) {
@@ -138,7 +142,7 @@ export default function PaymentScreen({ navigation, route }: Props) {
         setHasExistingProof(false);
       }
     })();
-  }, [invoiceId]);
+  }, [invoiceId, managedCandidateId]);
 
   useEffect(() => {
     Animated.parallel([
@@ -212,7 +216,11 @@ export default function PaymentScreen({ navigation, route }: Props) {
     }
     setSubmitting(true);
     try {
-      await InvoicesService.markPaid(invoiceId, { reference: reference.trim() || undefined, slipUrl: slipUrl || undefined });
+      await InvoicesService.markPaid(invoiceId, {
+        reference: reference.trim() || undefined,
+        slipUrl: slipUrl || undefined,
+        managedCandidateId: managedCandidateId || undefined,
+      });
       Alert.alert(
         hasExistingProof ? 'Updated' : 'Submitted',
         hasExistingProof ? 'Payment proof updated successfully.' : 'Payment proof submitted. Status will update after verification.'

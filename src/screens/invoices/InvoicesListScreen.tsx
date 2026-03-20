@@ -3,12 +3,15 @@ import { Animated, Easing, FlatList, Pressable, RefreshControl, StyleSheet, Text
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import ManagedViewBanner from '../../components/managed/ManagedViewBanner';
 import { EmptyState, PageDecor } from '../../components/ui';
 import { InvoicesService } from '../../api/services';
+import { useAuthStore } from '../../context/authStore';
 import type { Invoice } from '../../types/models';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InvoicesStackParamList } from '../../navigation/app/AppNavigator';
 import { formatDate, money } from '../../utils/format';
+import { getManagedCandidateId, getManagedCandidateName, isManagedViewActive } from '../../utils/managedView';
 import { useTheme } from '../../theme/ThemeProvider';
 
 type Props = NativeStackScreenProps<InvoicesStackParamList, 'InvoicesList'>;
@@ -42,10 +45,14 @@ const getStatusTone = (value: string) => {
 export default function InvoicesListScreen({ navigation }: Props) {
   const t = useTheme();
   const { width } = useWindowDimensions();
+  const user = useAuthStore((s) => s.user);
   const [items, setItems] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const managedViewActive = useMemo(() => isManagedViewActive(user), [user]);
+  const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
+  const managedCandidateName = useMemo(() => getManagedCandidateName(user), [user]);
 
   const heroEntrance = useRef(new Animated.Value(0)).current;
   const cardsEntrance = useRef(new Animated.Value(0)).current;
@@ -58,7 +65,7 @@ export default function InvoicesListScreen({ navigation }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const res = await InvoicesService.list();
+      const res = await InvoicesService.list(managedCandidateId ? { managedCandidateId } : undefined);
       setItems(Array.isArray(res) ? res : (res as any)?.invoices || []);
     } catch (e: any) {
       setItems([]);
@@ -70,7 +77,7 @@ export default function InvoicesListScreen({ navigation }: Props) {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [managedCandidateId]);
 
   useEffect(() => {
     Animated.parallel([
@@ -150,8 +157,8 @@ export default function InvoicesListScreen({ navigation }: Props) {
   const heroVisualWidth = width < 380 ? 124 : 138;
   const stackSummaryCards = width <= 430;
   const summaryMetrics = [
-    { key: 'invoices', value: items.length, label: 'Invoices', color: '#1667B7', icon: 'file-text' as const, iconBg: '#EAF2FF' },
-    { key: 'due', value: dueCount, label: 'Due', color: '#B06A0E', icon: 'calendar' as const, iconBg: '#FFF4DE' },
+    { key: 'invoices', value: items.length, label: 'Total Invoices', color: '#1667B7', icon: 'file-text' as const, iconBg: '#EAF2FF' },
+    { key: 'due', value: dueCount, label: 'Due / Pending', color: '#B06A0E', icon: 'calendar' as const, iconBg: '#FFF4DE' },
     { key: 'paid', value: paidCount, label: 'Paid', color: '#118452', icon: 'check-circle' as const, iconBg: '#EAF8F0' },
   ];
 
@@ -190,25 +197,48 @@ export default function InvoicesListScreen({ navigation }: Props) {
               }}
             />
           }
-          ListHeaderComponent={
-            <View style={styles.headerWrap}>
-              <Animated.View style={[styles.topBar, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
-                <Pressable
-                  onPress={() => navigation.canGoBack() && navigation.goBack()}
-                  style={({ pressed }) => [styles.backBtn, !navigation.canGoBack() && styles.hidden, pressed && styles.pressed]}
-                  disabled={!navigation.canGoBack()}
+        ListHeaderComponent={
+          <View style={styles.headerWrap}>
+            {managedViewActive ? (
+              <ManagedViewBanner
+                candidateName={managedCandidateName}
+                subtitle="Invoices are loaded for the active managed candidate."
+              />
+            ) : null}
+            <Animated.View style={[styles.topBar, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
+              <Pressable
+                  onPress={() => {
+                    if (navigation.canGoBack()) {
+                      navigation.goBack();
+                      return;
+                    }
+                    if (navigation.getParent()?.canGoBack()) {
+                      navigation.getParent()?.goBack();
+                    }
+                  }}
+                  style={({ pressed }) => [styles.backBtn, !(navigation.canGoBack() || navigation.getParent()?.canGoBack()) && styles.hidden, pressed && styles.pressed]}
+                  disabled={!(navigation.canGoBack() || navigation.getParent()?.canGoBack())}
                 >
                   <Feather name="arrow-left" size={18} color="#183A88" />
                 </Pressable>
                 <View style={styles.topCopy}>
                   <Text style={[styles.topEyebrow, { fontFamily: t.typography.fontFamily.bold }]}>Billing desk</Text>
                   <Text style={[styles.heading, { fontFamily: t.typography.fontFamily.bold }]}>Invoices</Text>
-                  <Text style={[styles.sub, { fontFamily: t.typography.fontFamily.medium }]}>Due dates, totals, and payment status</Text>
+                  <Text style={[styles.sub, { fontFamily: t.typography.fontFamily.medium }]}>
+                    {managedViewActive ? 'Managed candidate invoices, due dates, and payment status' : 'Due dates, totals, and payment status'}
+                  </Text>
                 </View>
-                <View style={styles.syncChip}>
+                <Pressable
+                  onPress={async () => {
+                    setRefreshing(true);
+                    await load();
+                    setRefreshing(false);
+                  }}
+                  style={({ pressed }) => [styles.syncChip, pressed && styles.pressed]}
+                >
                   <Animated.View style={[styles.syncDot, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
-                  <Text style={[styles.syncText, { fontFamily: t.typography.fontFamily.bold }]}>Synced</Text>
-                </View>
+                  <Text style={[styles.syncText, { fontFamily: t.typography.fontFamily.bold }]}>Refresh</Text>
+                </Pressable>
               </Animated.View>
 
               <Animated.View style={[styles.heroCard, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
@@ -216,22 +246,24 @@ export default function InvoicesListScreen({ navigation }: Props) {
                 <View style={styles.heroGlowB} />
                 <Animated.View style={[styles.heroSweep, { transform: [{ translateX: sweepX }, { rotate: '18deg' }] }]} />
 
-              <View style={styles.heroHeaderRow}>
+                <View style={styles.heroHeaderRow}>
                 <View style={styles.heroPill}>
                   <Feather name="credit-card" size={13} color="#14589F" />
-                  <Text style={[styles.heroPillText, { fontFamily: t.typography.fontFamily.bold }]}>Payment overview</Text>
+                  <Text style={[styles.heroPillText, { fontFamily: t.typography.fontFamily.bold }]}>{managedViewActive ? 'Candidate billing' : 'Payment overview'}</Text>
                 </View>
                   <View style={styles.heroSignal}>
                     <View style={styles.heroSignalDot} />
-                    <Text style={[styles.heroSignalText, { fontFamily: t.typography.fontFamily.bold }]}>Billing flow</Text>
+                    <Text style={[styles.heroSignalText, { fontFamily: t.typography.fontFamily.bold }]}>{managedViewActive ? 'Candidate scope' : 'Billing flow'}</Text>
                   </View>
                 </View>
 
                 <View style={styles.heroMain}>
                   <View style={styles.heroCopyBlock}>
-                    <Text style={[styles.heroTitle, { fontFamily: t.typography.fontFamily.bold }]}>Invoice command center</Text>
+                    <Text style={[styles.heroTitle, { fontFamily: t.typography.fontFamily.bold }]}>{managedViewActive ? `${managedCandidateName} invoices` : 'Invoice command center'}</Text>
                     <Text style={[styles.heroBody, { fontFamily: t.typography.fontFamily.medium }]}>
-                      Check totals, due dates, and paid invoices.
+                      {managedViewActive
+                        ? 'Review invoices created for the active managed candidate, including due dates and proof status.'
+                        : 'Check totals, due dates, and paid invoices.'}
                     </Text>
 
                     {!stackSummaryCards ? summaryCardsNode : null}
@@ -267,8 +299,14 @@ export default function InvoicesListScreen({ navigation }: Props) {
           ListEmptyComponent={
             <EmptyState
               icon="o"
-              title={loading ? 'Loading...' : 'No invoices'}
-              message={loading ? 'Please wait' : error || 'Invoices show up here.'}
+              title={loading ? 'Loading...' : managedViewActive ? 'No invoices assigned yet' : 'No invoices'}
+              message={
+                loading
+                  ? 'Please wait'
+                  : managedViewActive
+                    ? error || 'Invoices created for this managed candidate will appear here.'
+                    : error || 'Invoices show up here.'
+              }
             />
           }
           renderItem={({ item, index }) => {

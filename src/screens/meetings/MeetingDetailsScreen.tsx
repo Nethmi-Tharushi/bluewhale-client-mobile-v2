@@ -4,12 +4,20 @@ import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { MeetingsService } from '../../api/services';
+import { MeetingsService, TasksService } from '../../api/services';
 import { Button, Screen } from '../../components/ui';
 import type { Meeting } from '../../types/models';
 import type { MeetingsStackParamList } from '../../navigation/app/AppNavigator';
 import { useAuthStore } from '../../context/authStore';
 import { useTheme } from '../../theme/ThemeProvider';
+import {
+  getMeetingContactName,
+  getMeetingDisplayDate,
+  getMeetingDisplayTime,
+  getMeetingNotes,
+  isTaskDerivedMeeting,
+  mergeMeetingsWithTaskMeetings,
+} from '../../utils/meetingTasks';
 
 type Props = NativeStackScreenProps<MeetingsStackParamList, 'MeetingDetails'>;
 
@@ -35,26 +43,6 @@ const accessValueForMeeting = (meeting: Meeting | null) => {
   const locationType = String(meeting?.locationType || '').trim();
   if (locationType === 'Physical') return String(meeting?.location || '').trim();
   return String(meeting?.link || '').trim();
-};
-
-const notesValueForMeeting = (meeting: Meeting | null) => {
-  const candidates = [
-    meeting?.notes,
-    (meeting as any)?.note,
-    (meeting as any)?.description,
-    (meeting as any)?.agenda,
-    (meeting as any)?.details,
-    (meeting as any)?.meetingNotes,
-    (meeting as any)?.metadata?.notes,
-    (meeting as any)?.metadata?.note,
-  ];
-
-  for (const value of candidates) {
-    const text = String(value || '').trim();
-    if (text) return text;
-  }
-
-  return '';
 };
 
 const toneForStatus = (status?: string) => {
@@ -90,19 +78,42 @@ export default function MeetingDetailsScreen({ navigation, route }: Props) {
   const sweep = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (initialMeeting) return;
+    let active = true;
+
+    const loadFromCollections = async () => {
+      const [meetingsRes, tasksRes] = await Promise.allSettled([
+        MeetingsService.list(managedCandidateId ? { managedCandidateId } : undefined),
+        TasksService.list(managedCandidateId ? { managedCandidateId } : undefined),
+      ]);
+      const meetingsList = meetingsRes.status === 'fulfilled' && Array.isArray(meetingsRes.value) ? meetingsRes.value : [];
+      const tasksList = tasksRes.status === 'fulfilled' && Array.isArray(tasksRes.value) ? tasksRes.value : [];
+      const mergedMeetings = mergeMeetingsWithTaskMeetings(meetingsList, tasksList);
+      return mergedMeetings.find((item) => String(item?._id) === String(meetingId)) || null;
+    };
+
     (async () => {
       setLoading(true);
       try {
-        const list = await MeetingsService.list(managedCandidateId ? { managedCandidateId } : undefined);
-        const found = (Array.isArray(list) ? list : []).find((item) => String(item?._id) === String(meetingId));
-        setMeeting(found || null);
+        const shouldUseTaskFallback = isTaskDerivedMeeting(initialMeeting) || String(meetingId || '').startsWith('task-meeting-');
+        if (!shouldUseTaskFallback) {
+          const nextMeeting = await MeetingsService.get(meetingId, managedCandidateId ? { managedCandidateId } : undefined);
+          if (active) setMeeting((prev) => ({ ...(prev || {}), ...(nextMeeting || {}) }));
+        } else if (!initialMeeting) {
+          const fallbackMeeting = await loadFromCollections();
+          if (active) setMeeting(fallbackMeeting);
+        }
       } catch {
-        setMeeting(null);
+        if (!initialMeeting) {
+          const fallbackMeeting = await loadFromCollections().catch(() => null);
+          if (active) setMeeting(fallbackMeeting);
+        }
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     })();
+    return () => {
+      active = false;
+    };
   }, [initialMeeting, managedCandidateId, meetingId]);
 
   useEffect(() => {
@@ -137,14 +148,16 @@ export default function MeetingDetailsScreen({ navigation, route }: Props) {
   }, [contentEntrance, heroEntrance]);
 
   const statusTone = toneForStatus(meeting?.status);
-  const contactName = String(meeting?.candidate?.name || meeting?.clientName || '').trim();
+  const contactName = getMeetingContactName(meeting);
   const contactEmail = String(meeting?.candidate?.email || '').trim();
   const accessValue = accessValueForMeeting(meeting);
   const accessLabel = accessLabelForMeeting(meeting);
   const meetingType = String(meeting?.locationType || '').trim() || 'Meeting';
-  const notesValue = notesValueForMeeting(meeting);
+  const notesValue = getMeetingNotes(meeting);
   const participantCount = Array.isArray(meeting?.participants) ? meeting!.participants!.length : 0;
   const accessIcon = meetingType === 'Physical' ? 'map-pin' : meetingType === 'Phone' ? 'phone' : 'link';
+  const displayDate = getMeetingDisplayDate(meeting);
+  const displayTime = getMeetingDisplayTime(meeting);
 
   const heroY = heroEntrance.interpolate({ inputRange: [0, 1], outputRange: [22, 0] });
   const contentY = contentEntrance.interpolate({ inputRange: [0, 1], outputRange: [20, 0] });
@@ -154,8 +167,8 @@ export default function MeetingDetailsScreen({ navigation, route }: Props) {
   const sweepX = sweep.interpolate({ inputRange: [0, 1], outputRange: [-180, 300] });
 
   const quickFacts = [
-    { key: 'date', label: 'Date', value: meeting?.date || 'TBD', icon: 'calendar' as const, color: '#1D5FD2', bg: '#EEF4FF' },
-    { key: 'time', label: 'Time', value: meeting?.time || 'TBD', icon: 'clock' as const, color: '#7A3ED4', bg: '#F3EDFF' },
+    { key: 'date', label: 'Date', value: displayDate === 'N/A' ? 'TBD' : displayDate, icon: 'calendar' as const, color: '#1D5FD2', bg: '#EEF4FF' },
+    { key: 'time', label: 'Time', value: displayTime === 'N/A' ? 'TBD' : displayTime, icon: 'clock' as const, color: '#7A3ED4', bg: '#F3EDFF' },
     { key: 'type', label: 'Type', value: meetingType, icon: locationIcon(meeting), color: meetingType === 'Physical' ? '#118D4C' : '#1768B8', bg: meetingType === 'Physical' ? '#ECFAF3' : '#EEF5FF' },
   ];
 
@@ -348,14 +361,14 @@ export default function MeetingDetailsScreen({ navigation, route }: Props) {
                 <Feather name="calendar" size={16} color="#1D5FD2" />
                 <View style={styles.detailCopy}>
                   <Text style={styles.detailLabel}>Date</Text>
-                  <Text style={[styles.detailValue, { fontFamily: t.typography.fontFamily.bold }]}>{meeting?.date || 'N/A'}</Text>
+                  <Text style={[styles.detailValue, { fontFamily: t.typography.fontFamily.bold }]}>{displayDate}</Text>
                 </View>
               </View>
               <View style={[styles.detailBox, styles.halfBox]}>
                 <Feather name="clock" size={16} color="#7A3ED4" />
                 <View style={styles.detailCopy}>
                   <Text style={styles.detailLabel}>Time</Text>
-                  <Text style={[styles.detailValue, { fontFamily: t.typography.fontFamily.bold }]}>{meeting?.time || 'N/A'}</Text>
+                  <Text style={[styles.detailValue, { fontFamily: t.typography.fontFamily.bold }]}>{displayTime}</Text>
                 </View>
               </View>
             </View>

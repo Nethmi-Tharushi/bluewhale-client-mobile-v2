@@ -5,6 +5,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as IntentLauncher from 'expo-intent-launcher';
 import { Feather } from '@expo/vector-icons';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Button, EmptyState, Input, Screen } from '../../components/ui';
 import { TasksService } from '../../api/services';
@@ -17,6 +18,7 @@ import { getToken } from '../../utils/tokenStorage';
 import { useAuthStore } from '../../context/authStore';
 import { downloadResolvedRemoteFile } from '../../utils/remoteFileDownload';
 import { ensureUploadBatchWithinLimit } from '../../utils/uploadValidation';
+import { getManagedCandidateId } from '../../utils/managedView';
 
 type Props = NativeStackScreenProps<TasksStackParamList, 'TaskDetails'>;
 
@@ -214,6 +216,9 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
   const t = useTheme();
   const { width } = useWindowDimensions();
   const compact = width < 390;
+  const tabBarHeight = useBottomTabBarHeight();
+  const user = useAuthStore((s) => s.user);
+  const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
   const { taskId, task: taskFromRoute } = route.params;
   const [task, setTask] = useState<Task | null>(taskFromRoute || null);
   const [loading, setLoading] = useState(!taskFromRoute);
@@ -231,7 +236,7 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
   const load = async () => {
     setLoading(true);
     try {
-      const list = await TasksService.list();
+      const list = await TasksService.list(managedCandidateId ? { managedCandidateId } : undefined);
       const found = (Array.isArray(list) ? list : []).find((x: any) => String(x?._id || x?.id) === String(taskId));
       setTask(found || null);
       if (found?.completionNotes) setCompletionNotes(String(found.completionNotes));
@@ -458,7 +463,7 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
 
   return (
     <Screen padded={false}>
-      <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: tabBarHeight + 104 }]} showsVerticalScrollIndicator={false}>
         <Animated.View style={[styles.headerRow, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
           <Pressable onPress={() => navigation.canGoBack() && navigation.goBack()} style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}>
             <Feather name="arrow-left" size={18} color="#1B3890" />
@@ -491,7 +496,7 @@ export default function TaskDetailsScreen({ navigation, route }: Props) {
 
           <View style={[styles.heroMain, compact && styles.heroMainCompact]}>
             <View style={styles.heroCopyBlock}>
-              <Text style={[styles.heroTitle, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={2}>
+              <Text style={[styles.heroTitle, { fontFamily: t.typography.fontFamily.bold }]}>
                 {task?.title || 'Task'}
               </Text>
               <Text style={[styles.heroBody, { fontFamily: t.typography.fontFamily.medium }]}>
@@ -997,3 +1002,8 @@ const styles = StyleSheet.create({
   fileName: { color: '#2B467A', fontSize: 11, lineHeight: 14, fontWeight: '700' },
   fileMeta: { marginTop: 2, color: '#7085AA', fontSize: 9, lineHeight: 11, fontWeight: '600' },
 });
+
+
+
+
+

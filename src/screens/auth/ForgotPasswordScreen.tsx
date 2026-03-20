@@ -15,13 +15,13 @@ type FocusField = 'email' | null;
 const RECOVERY_STEPS = [
   { icon: 'mail' as const, label: 'Request reset' },
   { icon: 'shield' as const, label: 'Verify securely' },
-  { icon: 'key' as const, label: 'Set new password' },
+  { icon: 'key' as const, label: 'Restore access' },
 ];
 
 const TRUST_CHIPS = [
   { icon: 'clock' as const, label: 'Fast email' },
   { icon: 'check-circle' as const, label: 'Private check' },
-  { icon: 'smartphone' as const, label: 'Mobile reset' },
+  { icon: 'briefcase' as const, label: 'Agent account' },
 ];
 
 export default function ForgotPasswordScreen({ navigation }: Props) {
@@ -126,7 +126,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
     setLoading(true);
     try {
       await AuthService.forgotPassword(email.trim());
-      Alert.alert('Check your email', 'If an account exists, we sent password reset instructions.');
+      Alert.alert('Check your email', 'If an agent account exists, we sent password reset instructions.');
       navigation.navigate('Login');
     } catch (e: any) {
       Alert.alert('Failed', e?.userMessage || e?.message || 'Please try again');
@@ -172,7 +172,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
 
               <View style={[styles.eyebrow, { backgroundColor: t.isDark ? 'rgba(17, 29, 52, 0.86)' : isAndroid ? '#FFFFFF' : 'rgba(255,255,255,0.74)', borderColor: t.colors.border }]}>
                 <Feather name="refresh-cw" size={14} color={t.colors.secondary} />
-                <Text style={[styles.eyebrowText, { color: t.colors.primary }]}>Password recovery</Text>
+                <Text style={[styles.eyebrowText, { color: t.colors.primary }]}>Agent recovery</Text>
               </View>
 
               <View style={styles.visualStage}>
@@ -196,9 +196,9 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                 </Animated.View>
               </View>
 
-              <Text style={[styles.title, { color: t.colors.primary }, compact && styles.titleCompact]}>Recover your account</Text>
+              <Text style={[styles.title, { color: t.colors.primary }, compact && styles.titleCompact]}>Recover your agent account</Text>
               <Text style={[styles.subtitle, { color: t.colors.grayMutedDark }]}>
-                Enter your email to get a secure reset link.
+                Enter your agent email to receive a secure reset link and restore workspace access.
               </Text>
 
               <View style={[styles.stepsPanel, { backgroundColor: t.isDark ? 'rgba(17, 29, 52, 0.82)' : isAndroid ? '#FFFFFF' : 'rgba(255,255,255,0.72)', borderColor: t.colors.border }]}>
@@ -258,7 +258,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                   <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>email</Text>
                 </View>
                 <View style={[styles.metricCard, { backgroundColor: t.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.7)', borderColor: t.colors.border }]}>
-                  <Text style={[styles.metricValue, { color: t.colors.primary }]}>Safe</Text>
+                  <Text style={[styles.metricValue, { color: t.colors.primary }]}>Secure</Text>
                   <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>private reply</Text>
                 </View>
               </View>
@@ -269,7 +269,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                 </View>
                 <View style={styles.cardHeaderCopy}>
                   <Text style={[styles.cardTitle, { color: t.colors.text }]}>Send reset instructions</Text>
-                  <Text style={[styles.cardSubtitle, { color: t.colors.grayMutedDark }]}>We email a reset link if the account exists.</Text>
+                  <Text style={[styles.cardSubtitle, { color: t.colors.grayMutedDark }]}>We email a reset link if the agent account exists.</Text>
                 </View>
               </View>
 
@@ -317,7 +317,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
               </View>
 
               <View style={styles.metaRow}>
-                <Text style={[styles.metaText, { color: t.colors.grayMutedDark }]}>Using another account?</Text>
+                <Text style={[styles.metaText, { color: t.colors.grayMutedDark }]}>Need to try another agent email?</Text>
                 <Pressable onPress={() => navigation.navigate('Login')} hitSlop={10} style={({ pressed }) => [pressed && styles.pressed]}>
                   <Text style={[styles.metaLink, { color: t.colors.primary }]}>Back to login</Text>
                 </Pressable>
@@ -325,7 +325,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
 
               <Pressable onPress={onSubmit} disabled={loading} style={({ pressed }) => [styles.buttonPressable, pressed && styles.pressed, loading && styles.disabled]}>
                 <LinearGradient colors={t.colors.gradientButton as any} start={{ x: 0, y: 0.4 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
-                  <Text style={styles.primaryButtonText}>{loading ? 'Sending...' : 'Send reset email'}</Text>
+                  <Text style={styles.primaryButtonText}>{loading ? 'Sending...' : 'Send agent reset email'}</Text>
                   <View style={styles.primaryArrowWrap}>
                     <Feather name="arrow-right" size={18} color="#FFFFFF" />
                   </View>
@@ -336,11 +336,11 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                 onPress={() => (navigation.canGoBack() ? navigation.goBack() : navigation.navigate('Login'))}
                 style={({ pressed }) => [styles.secondaryButton, { borderColor: t.colors.borderStrong, backgroundColor: t.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.62)' }, pressed && styles.pressed]}
               >
-                <Text style={[styles.secondaryButtonText, { color: t.colors.primary }]}>Return to sign in</Text>
+                <Text style={[styles.secondaryButtonText, { color: t.colors.primary }]}>Return to agent sign in</Text>
               </Pressable>
             </Animated.View>
 
-            <Text style={[styles.footerNote, { color: t.colors.grayMutedDark }]}>Clear, secure account recovery on mobile.</Text>
+            <Text style={[styles.footerNote, { color: t.colors.grayMutedDark }]}>Clear, secure agent account recovery on mobile.</Text>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>

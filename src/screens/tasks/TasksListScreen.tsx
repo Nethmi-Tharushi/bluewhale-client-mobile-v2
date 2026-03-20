@@ -1,13 +1,16 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import ManagedViewBanner from '../../components/managed/ManagedViewBanner';
 import { EmptyState, Screen } from '../../components/ui';
 import { TasksService } from '../../api/services';
 import type { Task } from '../../types/models';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { TasksStackParamList } from '../../navigation/app/AppNavigator';
 import { useTheme } from '../../theme/ThemeProvider';
+import { useAuthStore } from '../../context/authStore';
+import { getManagedCandidateId, getManagedCandidateName, isManagedViewActive, stripManagedViewState } from '../../utils/managedView';
 
 type Props = NativeStackScreenProps<TasksStackParamList, 'TasksList'>;
 
@@ -44,12 +47,18 @@ const isOverdue = (task: Task) => {
 export default function TasksListScreen({ navigation }: Props) {
   const t = useTheme();
   const { width } = useWindowDimensions();
+  const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
+  const signIn = useAuthStore((s) => s.signIn);
   const compact = width < 390;
   const [items, setItems] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [q, setQ] = useState('');
   const [statusFilter, setStatusFilter] = useState<(typeof statusList)[number]>('All');
+  const managedViewActive = useMemo(() => isManagedViewActive(user), [user]);
+  const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
+  const managedCandidateName = useMemo(() => getManagedCandidateName(user), [user]);
 
   const heroEntrance = useRef(new Animated.Value(0)).current;
   const listEntrance = useRef(new Animated.Value(0)).current;
@@ -60,7 +69,7 @@ export default function TasksListScreen({ navigation }: Props) {
   const load = async () => {
     setLoading(true);
     try {
-      const list = await TasksService.list();
+      const list = await TasksService.list(managedCandidateId ? { managedCandidateId } : undefined);
       setItems(Array.isArray(list) ? list : []);
     } catch {
       setItems([]);
@@ -73,7 +82,7 @@ export default function TasksListScreen({ navigation }: Props) {
     const unsub = navigation.addListener('focus', load);
     load();
     return unsub;
-  }, [navigation]);
+  }, [managedCandidateId, navigation]);
 
   useEffect(() => {
     Animated.parallel([
@@ -116,6 +125,24 @@ export default function TasksListScreen({ navigation }: Props) {
     loops.forEach((loop) => loop.start());
     return () => loops.forEach((loop) => loop.stop());
   }, [drift, heroEntrance, listEntrance, pulse, sweep]);
+
+  const exitManagedView = useCallback(async () => {
+    if (!token || !user) return;
+    await signIn({ token, user: stripManagedViewState(user) });
+    navigation.getParent()?.navigate('Candidates' as never);
+  }, [navigation, signIn, token, user]);
+
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    if (navigation.getParent()?.canGoBack()) {
+      navigation.getParent()?.goBack();
+      return;
+    }
+    navigation.getParent()?.navigate('Overview' as never);
+  }, [navigation]);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -170,11 +197,18 @@ export default function TasksListScreen({ navigation }: Props) {
         }
         ListHeaderComponent={
           <View style={styles.headerWrap}>
+            {managedViewActive ? (
+              <ManagedViewBanner
+                candidateName={managedCandidateName}
+                subtitle="Tasks are loaded for the active managed candidate"
+                onExit={exitManagedView}
+              />
+            ) : null}
             <Animated.View style={[styles.headerRow, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
               <Pressable
-                onPress={() => navigation.canGoBack() && navigation.goBack()}
-                style={({ pressed }) => [styles.backBtn, !navigation.canGoBack() && styles.backBtnHidden, pressed && styles.pressed]}
-                disabled={!navigation.canGoBack()}
+                onPress={handleBack}
+                style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
+                
               >
                 <Feather name="arrow-left" size={18} color="#1B3890" />
               </Pressable>
@@ -723,3 +757,5 @@ const styles = StyleSheet.create({
   },
   cardFooterSignalText: { color: '#6A7EA6', fontSize: 9, lineHeight: 11, fontWeight: '700' },
 });
+
+

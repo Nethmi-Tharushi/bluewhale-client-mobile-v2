@@ -1,15 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, FlatList, Pressable, RefreshControl, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { Alert, Animated, Easing, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import ManagedViewBanner from '../../components/managed/ManagedViewBanner';
 import { EmptyState, Screen } from '../../components/ui';
-import { ApplicationsService } from '../../api/services';
-import type { Application, Job } from '../../types/models';
+import { ApplicationsService, WishlistService } from '../../api/services';
+import type { Application, Job, SavedJobEntry, WishlistStats } from '../../types/models';
 import { formatDate } from '../../utils/format';
 import { useTheme } from '../../theme/ThemeProvider';
-import { getSavedJobs, setSavedJobs as persistSavedJobs } from '../../utils/savedJobsStorage';
 import { useAuthStore } from '../../context/authStore';
+import { getManagedCandidateId, getManagedCandidateName, isManagedViewActive, stripManagedViewState } from '../../utils/managedView';
 
 const pick = (obj: any, keys: string[], fallback = '') => {
   for (const key of keys) {
@@ -95,20 +96,36 @@ const getStatusTone = (value: string) => {
   return { bg: '#F4F8FF', border: '#D8E3F5', text: '#1F5FB7' };
 };
 
+const ALL_SAVED_TYPES_LABEL = 'All types';
+
+const wasSavedWithinDays = (savedAt?: string, days = 7) => {
+  if (!savedAt) return false;
+  const parsed = new Date(savedAt);
+  if (Number.isNaN(parsed.getTime())) return false;
+  return Date.now() - parsed.getTime() <= days * DAY_MS;
+};
+
+
 export default function MyApplicationsScreen() {
   const t = useTheme();
   const navigation = useNavigation<any>();
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
+  const signIn = useAuthStore((s) => s.signIn);
   const { width } = useWindowDimensions();
 
   const [tab, setTab] = useState<'applied' | 'saved'>('applied');
   const [items, setItems] = useState<Application[]>([]);
-  const [savedJobs, setSavedJobs] = useState<Job[]>([]);
+  const [savedJobs, setSavedJobs] = useState<SavedJobEntry[]>([]);
+  const [savedStats, setSavedStats] = useState<WishlistStats>({});
+  const [savedQuery, setSavedQuery] = useState('');
+  const [savedTypeFilter, setSavedTypeFilter] = useState(ALL_SAVED_TYPES_LABEL);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  const userId = String((user as any)?._id || (user as any)?.id || (user as any)?.email || (user as any)?.phone || token || '').trim() || 'guest';
+  const managedViewActive = useMemo(() => isManagedViewActive(user), [user]);
+  const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
+  const managedCandidateName = useMemo(() => getManagedCandidateName(user), [user]);
   const tabWidth = Math.max(120, Math.floor((width - 44) / 2));
 
   const heroEntrance = useRef(new Animated.Value(0)).current;
@@ -120,29 +137,24 @@ export default function MyApplicationsScreen() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    let applied: Application[] = [];
-    let saved: Job[] = [];
+    const wishlistParams = managedCandidateId ? { managedCandidateId } : undefined;
 
-    try {
-      const res = await ApplicationsService.my();
-      const raw = res as any;
-      applied = Array.isArray(raw) ? raw : raw?.applications || raw?.items || raw?.rows || raw?.data || [];
-      if (!Array.isArray(applied)) applied = [];
-    } catch {
-      applied = [];
-    }
+    const [applicationsRes, savedJobsRes, savedStatsRes] = await Promise.allSettled([
+      ApplicationsService.my(managedCandidateId ? { candidateId: managedCandidateId, managedCandidateId } : undefined),
+      WishlistService.list(wishlistParams),
+      WishlistService.stats(wishlistParams),
+    ]);
 
-    try {
-      const res = await getSavedJobs(userId);
-      saved = Array.isArray(res) ? res : [];
-    } catch {
-      saved = [];
-    }
+    const rawApplications = applicationsRes.status === 'fulfilled' ? (applicationsRes.value as any) : [];
+    const applied = Array.isArray(rawApplications)
+      ? rawApplications
+      : rawApplications?.applications || rawApplications?.items || rawApplications?.rows || rawApplications?.data || [];
 
-    setItems(applied);
-    setSavedJobs(saved);
+    setItems(Array.isArray(applied) ? applied : []);
+    setSavedJobs(savedJobsRes.status === 'fulfilled' ? savedJobsRes.value : []);
+    setSavedStats(savedStatsRes.status === 'fulfilled' ? savedStatsRes.value : {});
     setLoading(false);
-  }, [userId]);
+  }, [managedCandidateId]);
 
   useEffect(() => {
     load();
@@ -189,9 +201,39 @@ export default function MyApplicationsScreen() {
     }).start();
   }, [tab, tabShift, tabWidth]);
 
-  const listData = tab === 'applied' ? items : savedJobs;
+  const savedThisWeekCount = useMemo(() => savedJobs.filter((item) => wasSavedWithinDays(item?.savedAt, 7)).length, [savedJobs]);
+  const savedTypeOptions = useMemo(() => {
+    const types = Array.from(
+      new Set(
+        savedJobs
+          .map((item) => pick(item?.job, ['type', 'jobType', 'employmentType'], ''))
+          .map((value) => value.trim())
+          .filter(Boolean)
+      )
+    );
+    return [ALL_SAVED_TYPES_LABEL, ...types];
+  }, [savedJobs]);
+  const filteredSavedJobs = useMemo(() => {
+    const term = savedQuery.trim().toLowerCase();
+    return savedJobs.filter((item) => {
+      const job = item?.job || {};
+      const searchHaystack = [
+        pick(job, ['title', 'jobTitle', 'position']),
+        pick(job, ['company', 'companyName']),
+        pick(job, ['location', 'city', 'jobLocation']),
+      ]
+        .join(' ')
+        .toLowerCase();
+      const typeValue = pick(job, ['type', 'jobType', 'employmentType'], '');
+      const matchesSearch = !term || searchHaystack.includes(term);
+      const matchesType = savedTypeFilter === ALL_SAVED_TYPES_LABEL || typeValue === savedTypeFilter;
+      return matchesSearch && matchesType;
+    });
+  }, [savedJobs, savedQuery, savedTypeFilter]);
+  const listData = tab === 'applied' ? items : filteredSavedJobs;
   const appliedCount = items.length;
-  const savedCount = savedJobs.length;
+  const savedCount = savedStats.totalSaved ?? savedJobs.length;
+  const expiringSoonCount = savedStats.expiringThisWeek ?? savedJobs.filter((item) => !!getExpiryMeta(item?.job)?.isSoon).length;
   const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
   const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.52] });
   const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
@@ -199,12 +241,19 @@ export default function MyApplicationsScreen() {
   const heroY = heroEntrance.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
 
   const headerCards = useMemo(
-    () => [
-      { label: 'Applied', value: String(appliedCount), tone: '#1A66B8', icon: 'file-text' as const, iconBg: '#EAF2FF' },
-      { label: 'Saved', value: String(savedCount), tone: '#138E79', icon: 'bookmark' as const, iconBg: '#EAF8F4' },
-      { label: tab === 'applied' ? 'Focus' : 'Next', value: tab === 'applied' ? 'Status' : 'Apply', tone: '#C97C18', icon: 'activity' as const, iconBg: '#FFF4E4' },
-    ],
-    [appliedCount, savedCount, tab]
+    () =>
+      tab === 'applied'
+        ? [
+            { label: 'Applied', value: String(appliedCount), tone: '#1A66B8', icon: 'file-text' as const, iconBg: '#EAF2FF' },
+            { label: 'Saved', value: String(savedCount), tone: '#138E79', icon: 'bookmark' as const, iconBg: '#EAF8F4' },
+            { label: 'Focus', value: 'Status', tone: '#C97C18', icon: 'activity' as const, iconBg: '#FFF4E4' },
+          ]
+        : [
+            { label: 'Total Saved', value: String(savedCount), tone: '#138E79', icon: 'bookmark' as const, iconBg: '#EAF8F4' },
+            { label: 'Expiring Soon', value: String(expiringSoonCount), tone: '#C97C18', icon: 'clock' as const, iconBg: '#FFF4E4' },
+            { label: 'This Week', value: String(savedThisWeekCount), tone: '#1A66B8', icon: 'calendar' as const, iconBg: '#EAF2FF' },
+          ],
+    [appliedCount, expiringSoonCount, savedCount, savedThisWeekCount, tab]
   );
   const appliedJobIds = useMemo(
     () =>
@@ -217,6 +266,24 @@ export default function MyApplicationsScreen() {
     [items]
   );
 
+  const exitManagedView = useCallback(async () => {
+    if (!token || !user) return;
+    await signIn({ token, user: stripManagedViewState(user) });
+    navigation.getParent()?.navigate('Candidates' as never);
+  }, [navigation, signIn, token, user]);
+
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    if (navigation.getParent()?.canGoBack()) {
+      navigation.getParent()?.goBack();
+      return;
+    }
+    navigation.getParent()?.navigate('Overview' as never);
+  }, [navigation]);
+
   const openJobDetails = (jobId: string) => navigation.navigate('Home', { screen: 'JobDetails', params: { jobId } });
   const openApply = (jobId: string) => navigation.navigate('Home', { screen: 'ApplyJob', params: { jobId } });
   const removeSavedJob = useCallback(
@@ -224,18 +291,35 @@ export default function MyApplicationsScreen() {
       const normalizedId = String(jobId || '').trim();
       if (!normalizedId) return;
 
-      const nextSavedJobs = savedJobs.filter((savedJob: any) => String(savedJob?._id || savedJob?.id || '').trim() !== normalizedId);
-      setSavedJobs(nextSavedJobs);
-      await persistSavedJobs(userId, nextSavedJobs);
+      try {
+        await WishlistService.remove(normalizedId, managedCandidateId ? { managedCandidateId } : undefined);
+        const nextSavedJobs = savedJobs.filter(
+          (savedJob: any) => String(savedJob?.job?._id || savedJob?.job?.id || savedJob?._id || savedJob?.id || '').trim() !== normalizedId
+        );
+        setSavedJobs(nextSavedJobs);
+        const nextStats = await WishlistService.stats(managedCandidateId ? { managedCandidateId } : undefined).catch(() => null);
+        if (nextStats) setSavedStats(nextStats);
+      } catch (err: any) {
+        Alert.alert('Unable to remove', err?.userMessage || err?.message || 'Please try again.');
+      }
     },
-    [savedJobs, userId]
+    [managedCandidateId, savedJobs]
   );
+
+  useEffect(() => {
+    if (savedTypeFilter === ALL_SAVED_TYPES_LABEL || savedTypeOptions.includes(savedTypeFilter)) return;
+    setSavedTypeFilter(ALL_SAVED_TYPES_LABEL);
+  }, [savedTypeFilter, savedTypeOptions]);
 
   return (
     <Screen padded={false}>
       <FlatList
         data={listData}
-        keyExtractor={(it: any, index) => String(it?._id || it?.id || it?.job?._id || it?.jobId || `application-${index}`)}
+        keyExtractor={(it: any, index) =>
+          tab === 'applied'
+            ? String(it?._id || it?.id || it?.job?._id || it?.jobId || `application-${index}`)
+            : String(it?.job?._id || it?.job?.id || it?._id || it?.id || `saved-${index}`)
+        }
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.content, !listData.length && styles.contentEmpty]}
         refreshControl={
@@ -250,13 +334,20 @@ export default function MyApplicationsScreen() {
         }
         ListHeaderComponent={
           <View style={styles.headerWrap}>
+            {managedViewActive ? (
+              <ManagedViewBanner
+                candidateName={managedCandidateName}
+                subtitle="Application history is scoped to the active managed candidate"
+                onExit={exitManagedView}
+              />
+            ) : null}
             <Animated.View style={[styles.topBar, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
-              <Pressable onPress={() => navigation.canGoBack() && navigation.goBack()} style={({ pressed }) => [styles.backBtn, !navigation.canGoBack() && styles.hidden, pressed && styles.pressed]} disabled={!navigation.canGoBack()}>
+              <Pressable onPress={handleBack} style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}>
                 <Feather name="arrow-left" size={18} color="#173E91" />
               </Pressable>
               <View style={styles.topCopy}>
                 <Text style={[styles.topEyebrow, { color: t.colors.textMuted, fontFamily: t.typography.fontFamily.bold }]}>Candidate workspace</Text>
-                <Text style={[styles.topTitle, { fontFamily: t.typography.fontFamily.bold }]}>My applications</Text>
+                <Text style={[styles.topTitle, { fontFamily: t.typography.fontFamily.bold }]}>{tab === 'applied' ? 'My applications' : 'Saved jobs'}</Text>
               </View>
               <View style={styles.liveChip}>
                 <Animated.View style={[styles.liveDot, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
@@ -286,7 +377,7 @@ export default function MyApplicationsScreen() {
                   <Text style={[styles.heroBody, { fontFamily: t.typography.fontFamily.medium }]}>
                     {tab === 'applied'
                       ? 'Track status and revisit roles.'
-                      : 'Keep strong roles ready to apply.'}
+                      : 'Review managed-candidate wishlist items, expiring roles, and candidate-ready pricing.'}
                   </Text>
                 </View>
 
@@ -342,14 +433,67 @@ export default function MyApplicationsScreen() {
                 </View>
               </Pressable>
             </Animated.View>
+
+            {tab === 'saved' ? (
+              <View style={styles.savedFiltersWrap}>
+                <View style={styles.savedSearchBox}>
+                  <Feather name="search" size={16} color="#1C6FC4" />
+                  <TextInput
+                    value={savedQuery}
+                    onChangeText={setSavedQuery}
+                    placeholder="Search title, company, or location"
+                    placeholderTextColor="#7B8DA8"
+                    style={[styles.savedSearchInput, { fontFamily: t.typography.fontFamily.medium }]}
+                  />
+                  {savedQuery.trim() ? (
+                    <Pressable onPress={() => setSavedQuery('')} style={({ pressed }) => [styles.savedSearchClear, pressed && styles.pressed]}>
+                      <Feather name="x" size={14} color="#59708F" />
+                    </Pressable>
+                  ) : null}
+                </View>
+
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.savedTypeRow}>
+                  {savedTypeOptions.map((type) => {
+                    const active = savedTypeFilter === type;
+                    return (
+                      <Pressable
+                        key={type}
+                        onPress={() => setSavedTypeFilter(type)}
+                        style={({ pressed }) => [styles.savedTypeChip, active && styles.savedTypeChipActive, pressed && styles.pressed]}
+                      >
+                        <Text style={[styles.savedTypeChipText, active && styles.savedTypeChipTextActive, { fontFamily: t.typography.fontFamily.bold }]}>
+                          {type}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            ) : null}
           </View>
         }
         ListEmptyComponent={
           <View style={styles.emptyWrap}>
             <EmptyState
               icon="o"
-              title={loading ? 'Loading...' : tab === 'applied' ? 'No applications yet' : 'No saved jobs yet'}
-              message={loading ? 'Please wait' : tab === 'applied' ? 'Applied jobs show up here.' : 'Saved jobs show up here.'}
+              title={
+                loading
+                  ? 'Loading...'
+                  : tab === 'applied'
+                    ? 'No applications yet'
+                    : savedJobs.length && (savedQuery.trim() || savedTypeFilter !== ALL_SAVED_TYPES_LABEL)
+                      ? 'No saved jobs match'
+                      : 'No saved jobs yet'
+              }
+              message={
+                loading
+                  ? 'Please wait'
+                  : tab === 'applied'
+                    ? 'Applied jobs show up here.'
+                    : savedJobs.length && (savedQuery.trim() || savedTypeFilter !== ALL_SAVED_TYPES_LABEL)
+                      ? 'Try a different search or job type.'
+                      : 'Saved jobs show up here.'
+              }
             />
           </View>
         }
@@ -415,14 +559,18 @@ export default function MyApplicationsScreen() {
             );
           }
 
-          const roleTitle = pick(item, ['title', 'jobTitle', 'position'], 'Saved job');
-          const company = pick(item, ['company', 'companyName'], 'Company');
-          const location = pick(item, ['location', 'city', 'jobLocation'], 'Location');
-          const jobType = pick(item, ['type', 'jobType', 'employmentType'], 'Type');
-          const salary = pick(item, ['salary', 'salaryRange', 'salaryText'], 'N/A');
-          const savedId = String(item?._id || item?.id || '').trim();
+          const job = item?.job as any;
+          const roleTitle = pick(job, ['title', 'jobTitle', 'position'], 'Saved job');
+          const company = pick(job, ['company', 'companyName'], 'Company');
+          const location = pick(job, ['location', 'city', 'jobLocation'], 'Location');
+          const country = pick(job, ['country'], '');
+          const locationLabel = [location, country].filter(Boolean).join(', ') || 'Location';
+          const jobType = pick(job, ['type', 'jobType', 'employmentType'], 'Type');
+          const savedId = String(job?._id || job?.id || item?._id || item?.id || '').trim();
           const isApplied = appliedJobIds.has(savedId);
-          const expiry = getExpiryMeta(item);
+          const expiry = getExpiryMeta(job);
+          const isExpired = !!expiry && expiry.daysRemaining < 0;
+          const savedAtLabel = formatDate(item?.savedAt || item?.createdAt) || 'Recently';
           const expiryLabel =
             expiry && expiry.daysRemaining >= 0
               ? expiry.daysRemaining === 0
@@ -430,7 +578,7 @@ export default function MyApplicationsScreen() {
                 : expiry.daysRemaining === 1
                   ? 'Only 1 day remaining'
                   : `Only ${expiry.daysRemaining} days remaining`
-              : 'Review the role soon';
+              : 'This role is no longer active';
 
           return (
             <Animated.View style={{ opacity: cardsEntrance, transform: [{ translateY: itemY }] }}>
@@ -442,26 +590,35 @@ export default function MyApplicationsScreen() {
                     <Text style={[styles.itemTitle, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>{roleTitle}</Text>
                     <Text style={[styles.itemSub, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>{company}</Text>
                   </View>
-                  <View style={styles.savedBadge}>
-                    <Text style={[styles.savedBadgeText, { fontFamily: t.typography.fontFamily.bold }]}>Saved</Text>
+                  <View style={[styles.savedBadge, isExpired && styles.savedBadgeExpired]}>
+                    <Text style={[styles.savedBadgeText, isExpired && styles.savedBadgeTextExpired, { fontFamily: t.typography.fontFamily.bold }]}>{isExpired ? 'Expired' : 'Saved'}</Text>
                   </View>
                 </View>
                 <View style={styles.metaRow}>
                   <View style={[styles.metaChip, styles.metaMint]}><Feather name="briefcase" size={14} color="#13907A" /><Text style={[styles.metaText, styles.metaTextMint, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>{jobType}</Text></View>
-                  <View style={[styles.metaChip, styles.metaBlue]}><Feather name="map-pin" size={14} color="#1D77C9" /><Text style={[styles.metaText, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>{location}</Text></View>
-                  <View style={[styles.metaChip, styles.metaGold, styles.metaChipFull]}><Feather name="dollar-sign" size={14} color="#C67D12" /><Text style={[styles.metaText, styles.metaTextGold, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>{`Salary ${salary}`}</Text></View>
+                  <View style={[styles.metaChip, styles.metaBlue]}><Feather name="map-pin" size={14} color="#1D77C9" /><Text style={[styles.metaText, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>{locationLabel}</Text></View>
                 </View>
-                {expiry?.isSoon ? (
-                  <View style={styles.expiryBanner}>
-                    <View style={styles.expiryBannerIcon}>
-                      <Feather name="clock" size={16} color="#F06418" />
+                <View style={styles.savedInfoRow}>
+                  <View style={styles.savedInfoChip}>
+                    <Feather name="clock" size={14} color="#2870C5" />
+                    <Text style={[styles.savedInfoText, { fontFamily: t.typography.fontFamily.medium }]}>{`Saved ${savedAtLabel}`}</Text>
+                  </View>
+                </View>
+                {(expiry?.isSoon || isExpired) ? (
+                  <View style={[styles.expiryBanner, isExpired && styles.expiryBannerExpired]}>
+                    <View style={[styles.expiryBannerIcon, isExpired && styles.expiryBannerIconExpired]}>
+                      <Feather name={isExpired ? 'alert-circle' : 'clock'} size={16} color={isExpired ? '#D83B52' : '#F06418'} />
                     </View>
                     <View style={styles.expiryBannerCopy}>
-                      <Text style={[styles.expiryBannerTitle, { fontFamily: t.typography.fontFamily.bold }]}>Expires soon</Text>
-                      <Text style={[styles.expiryBannerText, { fontFamily: t.typography.fontFamily.medium }]}>{expiryLabel}</Text>
+                      <Text style={[styles.expiryBannerTitle, isExpired && styles.expiryBannerTitleExpired, { fontFamily: t.typography.fontFamily.bold }]}>
+                        {isExpired ? 'Expired role' : 'Expires soon'}
+                      </Text>
+                      <Text style={[styles.expiryBannerText, isExpired && styles.expiryBannerTextExpired, { fontFamily: t.typography.fontFamily.medium }]}>
+                        {expiryLabel}
+                      </Text>
                     </View>
-                    {!!expiry.formatted && (
-                      <Text style={[styles.expiryBannerDate, { fontFamily: t.typography.fontFamily.bold }]}>{expiry.formatted}</Text>
+                    {!!expiry?.formatted && (
+                      <Text style={[styles.expiryBannerDate, isExpired && styles.expiryBannerDateExpired, { fontFamily: t.typography.fontFamily.bold }]}>{expiry.formatted}</Text>
                     )}
                   </View>
                 ) : null}
@@ -568,6 +725,15 @@ const styles = StyleSheet.create({
   tabTitle: { color: '#1D4D99', fontSize: 13, lineHeight: 16, fontWeight: '800' },
   tabTitleActive: { color: '#12316E' },
   tabCaption: { marginTop: 4, color: '#6C8098', fontSize: 10, lineHeight: 12, fontWeight: '500' },
+  savedFiltersWrap: { marginTop: 12, gap: 10 },
+  savedSearchBox: { minHeight: 48, borderRadius: 16, paddingHorizontal: 14, backgroundColor: '#F6FAFF', borderWidth: 1, borderColor: '#D8E5F6', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  savedSearchInput: { flex: 1, color: '#16326F', fontSize: 13, lineHeight: 16, paddingVertical: 0 },
+  savedSearchClear: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#ECF2FA' },
+  savedTypeRow: { gap: 8, paddingRight: 10 },
+  savedTypeChip: { minHeight: 34, borderRadius: 999, paddingHorizontal: 12, borderWidth: 1, borderColor: '#D7E3F4', backgroundColor: '#F6FAFF', alignItems: 'center', justifyContent: 'center' },
+  savedTypeChipActive: { backgroundColor: '#1B6FC1', borderColor: '#1B6FC1' },
+  savedTypeChipText: { color: '#21528F', fontSize: 12, lineHeight: 14, fontWeight: '800' },
+  savedTypeChipTextActive: { color: '#FFFFFF' },
   itemCard: { marginBottom: 12, borderRadius: 24, padding: 14, backgroundColor: 'rgba(248, 250, 252, 0.9)', borderWidth: 1, borderColor: '#D8E3F5', overflow: 'hidden', shadowColor: '#6F8BB3', shadowOffset: { width: 0, height: 9 }, shadowOpacity: 0.08, shadowRadius: 18, elevation: 3 },
   itemTint: { ...StyleSheet.absoluteFillObject },
   itemTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 12 },
@@ -580,23 +746,31 @@ const styles = StyleSheet.create({
   statusBadgeText: { fontSize: 10, lineHeight: 12, fontWeight: '800' },
   savedBadge: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: '#F3FBF8', borderWidth: 1, borderColor: '#D4EDE5' },
   savedBadgeText: { color: '#168E79', fontSize: 10, lineHeight: 12, fontWeight: '800' },
+  savedBadgeExpired: { backgroundColor: '#FFF3F5', borderColor: '#F4CCD4' },
+  savedBadgeTextExpired: { color: '#D83B52' },
   metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   metaChip: { flex: 1, minWidth: '48%', minHeight: 42, borderRadius: 14, paddingHorizontal: 10, paddingVertical: 9, flexDirection: 'row', alignItems: 'center', borderWidth: 1 },
   metaChipFull: { minWidth: '100%' },
   metaBlue: { backgroundColor: '#F7FAFE', borderColor: '#E2EBF6' },
   metaLavender: { backgroundColor: '#FAF7FE', borderColor: '#ECE4F7' },
   metaMint: { backgroundColor: '#F5FBF9', borderColor: '#DDEFEA' },
-  metaGold: { backgroundColor: '#FFFAF2', borderColor: '#F3E7CE' },
   metaText: { marginLeft: 6, flex: 1, color: '#5D7091', fontSize: 10, lineHeight: 12, fontWeight: '600' },
   metaTextLavender: { color: '#7A6492' },
   metaTextMint: { color: '#5B7E78' },
-  metaTextGold: { color: '#987A4E' },
+  savedInfoRow: { marginTop: 12, flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
+  savedInfoChip: { minHeight: 34, borderRadius: 12, paddingHorizontal: 10, backgroundColor: '#F5F9FF', borderWidth: 1, borderColor: '#DDE7F6', flexDirection: 'row', alignItems: 'center', gap: 7 },
+  savedInfoText: { color: '#55708E', fontSize: 11, lineHeight: 14, fontWeight: '600' },
   expiryBanner: { marginTop: 12, borderRadius: 18, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: '#FFFBF5', borderWidth: 1, borderColor: '#F0E2C9', flexDirection: 'row', alignItems: 'center', gap: 10 },
   expiryBannerIcon: { width: 34, height: 34, borderRadius: 17, backgroundColor: '#FFF2E3', alignItems: 'center', justifyContent: 'center' },
   expiryBannerCopy: { flex: 1 },
   expiryBannerTitle: { color: '#C25412', fontSize: 13, lineHeight: 16, fontWeight: '800' },
   expiryBannerText: { marginTop: 2, color: '#9F773F', fontSize: 11, lineHeight: 14, fontWeight: '600' },
   expiryBannerDate: { color: '#B56B1B', fontSize: 10, lineHeight: 12, fontWeight: '800' },
+  expiryBannerExpired: { backgroundColor: '#FFF4F6', borderColor: '#F4CCD4' },
+  expiryBannerIconExpired: { backgroundColor: '#FFE7EC' },
+  expiryBannerTitleExpired: { color: '#D83B52' },
+  expiryBannerTextExpired: { color: '#9B5A68' },
+  expiryBannerDateExpired: { color: '#B45A6A' },
   actionsStack: { marginTop: 12, gap: 10 },
   actionsRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   actionsRowFlush: { marginTop: 8 },
@@ -620,3 +794,5 @@ const styles = StyleSheet.create({
   removeActionText: { color: '#E2404E', fontSize: 13, lineHeight: 16, fontWeight: '800' },
   emptyWrap: { flex: 1, justifyContent: 'center', paddingTop: 40 },
 });
+
+

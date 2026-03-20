@@ -1,17 +1,18 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, FlatList, Image, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { ApplicationsService, AuthService, JobsService } from '../../api/services';
+import { ApplicationsService, AuthService, JobsService, WishlistService } from '../../api/services';
 import { api } from '../../api/client';
+import ManagedViewBanner from '../../components/managed/ManagedViewBanner';
 import { EmptyState, Screen, Skeleton } from '../../components/ui';
 import { useAuthStore } from '../../context/authStore';
 import type { Job } from '../../types/models';
 import type { JobsStackParamList } from '../../navigation/app/AppNavigator';
 import { formatDate } from '../../utils/format';
 import { useTheme } from '../../theme/ThemeProvider';
-import { getSavedJobs, setSavedJobs } from '../../utils/savedJobsStorage';
+import { getManagedAppliedJobIds, getManagedCandidate, getManagedCandidateId, getManagedCandidateName, isManagedViewActive, stripManagedViewState } from '../../utils/managedView';
 
 type Props = NativeStackScreenProps<JobsStackParamList, 'JobsList'>;
 
@@ -44,6 +45,9 @@ const pickAny = (obj: any, keys: string[], fallback = '') => {
   return fallback;
 };
 
+const getCompanyName = (user: any) =>
+  pickAny(user, ['companyName', 'company.name', 'businessName', 'agencyName', 'organizationName'], '');
+
 const getPricingForCard = (job: any, user: any) => {
   const pricing = job?.pricing;
   if (pricing && typeof pricing === 'object') {
@@ -65,18 +69,30 @@ const getPricingForCard = (job: any, user: any) => {
 const jobKey = (j: any) => String(j?._id || j?.id || `${pick(j, ['title'])}-${pick(j, ['company'])}-${pick(j, ['location'])}`).toLowerCase();
 
 const QUICK_ACTION_META = [
-  { key: 'Jobs', caption: 'Browse roles', icon: 'briefcase' as const, active: true, gradient: ['#155EEF', '#46A6FF'] as const, tint: '#EAF3FF' },
-  { key: 'Applications', caption: 'Track status', icon: 'file-text' as const, active: false, gradient: ['#0B7A75', '#30C7B5'] as const, tint: '#E9FBF7' },
-  { key: 'Tasks', caption: 'Complete work', icon: 'check-square' as const, active: false, gradient: ['#6F3FF5', '#B77CFF'] as const, tint: '#F4EEFF' },
-  { key: 'Inquiries', caption: 'Ask support', icon: 'help-circle' as const, active: false, gradient: ['#F05A28', '#FF9D57'] as const, tint: '#FFF1E6' },
-  { key: 'Meetings', caption: 'Join sessions', icon: 'video' as const, active: false, gradient: ['#0E8A61', '#39D79C'] as const, tint: '#EAFBF2' },
-  { key: 'Documents', caption: 'Coming next', icon: 'folder' as const, active: false, gradient: ['#C46B12', '#F2BC4A'] as const, tint: '#FFF6E7' },
+  { key: 'Roles', caption: 'Browse jobs', icon: 'briefcase' as const, active: true, gradient: ['#155EEF', '#46A6FF'] as const, tint: '#EAF3FF' },
+  { key: 'Managed Candidates', caption: 'Manage profiles', icon: 'users' as const, active: false, gradient: ['#1B4AA3', '#1279C5'] as const, tint: '#EAF1FF' },
+  { key: 'Overview', caption: 'Track pipeline', icon: 'activity' as const, active: false, gradient: ['#0B7A75', '#30C7B5'] as const, tint: '#E9FBF7' },
+  { key: 'Analytics', caption: 'Review insights', icon: 'bar-chart-2' as const, active: false, gradient: ['#6F3FF5', '#B77CFF'] as const, tint: '#F4EEFF' },
 ];
+
+const MANAGED_HOME_QUICK_ACTION_META = [
+  { key: 'Roles', caption: 'Browse jobs', icon: 'briefcase' as const, active: true, gradient: ['#155EEF', '#46A6FF'] as const, tint: '#EAF3FF' },
+  { key: 'Overview', caption: 'Candidate hub', icon: 'activity' as const, active: false, gradient: ['#0B7A75', '#30C7B5'] as const, tint: '#E9FBF7' },
+  { key: 'Applications', caption: 'My submissions', icon: 'file-text' as const, active: false, gradient: ['#1B4AA3', '#1279C5'] as const, tint: '#EAF1FF' },
+  { key: 'Documents', caption: 'Stored files', icon: 'folder' as const, active: false, gradient: ['#3B82F6', '#60A5FA'] as const, tint: '#EEF5FF' },
+  { key: 'Tasks', caption: 'Action items', icon: 'check-square' as const, active: false, gradient: ['#0B7A75', '#30C7B5'] as const, tint: '#E9FBF7' },
+  { key: 'Meetings', caption: 'Upcoming calls', icon: 'calendar' as const, active: false, gradient: ['#6F3FF5', '#B77CFF'] as const, tint: '#F4EEFF' },
+  { key: 'Inquiries', caption: 'Support tickets', icon: 'help-circle' as const, active: false, gradient: ['#C77719', '#F4A340'] as const, tint: '#FFF5E8' },
+  { key: 'Invoices', caption: 'Billing items', icon: 'credit-card' as const, active: false, gradient: ['#A61E4D', '#F7677A'] as const, tint: '#FFF1F3' },
+];
+
+const MAX_HOME_QUICK_ACTIONS = Math.max(QUICK_ACTION_META.length, MANAGED_HOME_QUICK_ACTION_META.length);
 
 export default function JobsListScreen({ navigation }: Props) {
   const t = useTheme();
   const user = useAuthStore((s) => s.user);
   const token = useAuthStore((s) => s.token);
+  const signIn = useAuthStore((s) => s.signIn);
   const { width, height } = useWindowDimensions();
   const listRef = useRef<FlatList<Job> | null>(null);
   const [q, setQ] = useState('');
@@ -96,12 +112,16 @@ export default function JobsListScreen({ navigation }: Props) {
   const [appliedIds, setAppliedIds] = useState<string[]>([]);
   const [searchFocused, setSearchFocused] = useState(false);
   const [jobsSectionOffset, setJobsSectionOffset] = useState(0);
+  const [pressedQuickAction, setPressedQuickAction] = useState<string | null>(null);
 
-  const quickCardWidth = Math.max(98, Math.min(142, Math.floor((width - 44) / 3)));
+  const quickCardWidth = Math.max(102, Math.min(138, Math.floor((width - 44) / 3)));
   const shortScreen = height < 780;
   const veryShortScreen = height < 720;
-  const compactShortcutWidth = veryShortScreen ? 72 : shortScreen ? 82 : Math.min(quickCardWidth, 96);
-  const userId = String((user as any)?._id || (user as any)?.id || (user as any)?.email || (user as any)?.phone || token || '').trim() || 'guest';
+  const managedViewActive = useMemo(() => isManagedViewActive(user), [user]);
+  const managedCandidate = useMemo(() => getManagedCandidate(user), [user]);
+  const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
+  const managedCandidateName = useMemo(() => getManagedCandidateName(user), [user]);
+  const managedAppliedJobIds = useMemo(() => getManagedAppliedJobIds(user), [user]);
 
   const heroEntrance = useRef(new Animated.Value(0)).current;
   const filtersEntrance = useRef(new Animated.Value(0)).current;
@@ -110,7 +130,13 @@ export default function JobsListScreen({ navigation }: Props) {
   const badgeFloatB = useRef(new Animated.Value(0)).current;
   const shimmerTranslate = useRef(new Animated.Value(0)).current;
   const pulseDot = useRef(new Animated.Value(0)).current;
-  const quickAnimations = useRef(Array.from({ length: QUICK_ACTION_META.length }, () => new Animated.Value(0))).current;
+  const ambientRibbon = useRef(new Animated.Value(0)).current;
+  const headlineFloat = useRef(new Animated.Value(0)).current;
+  const quickAnimationsRef = useRef<Animated.Value[]>(Array.from({ length: MAX_HOME_QUICK_ACTIONS }, () => new Animated.Value(0)));
+  while (quickAnimationsRef.current.length < MAX_HOME_QUICK_ACTIONS) {
+    quickAnimationsRef.current.push(new Animated.Value(0));
+  }
+  const quickAnimations = quickAnimationsRef.current;
   const statAnimations = useRef(Array.from({ length: 3 }, () => new Animated.Value(0))).current;
 
   const load = async (opts?: { silent?: boolean }) => {
@@ -133,7 +159,6 @@ export default function JobsListScreen({ navigation }: Props) {
 
   useEffect(() => {
     load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -150,11 +175,13 @@ export default function JobsListScreen({ navigation }: Props) {
       Animated.loop(Animated.sequence([Animated.timing(badgeFloatB, { toValue: 1, duration: 2800, useNativeDriver: true }), Animated.timing(badgeFloatB, { toValue: 0, duration: 2800, useNativeDriver: true })])),
       Animated.loop(Animated.sequence([Animated.timing(shimmerTranslate, { toValue: 1, duration: 2200, delay: 800, useNativeDriver: true }), Animated.timing(shimmerTranslate, { toValue: 0, duration: 0, useNativeDriver: true })])),
       Animated.loop(Animated.sequence([Animated.timing(pulseDot, { toValue: 1, duration: 1500, useNativeDriver: true }), Animated.timing(pulseDot, { toValue: 0, duration: 1500, useNativeDriver: true })])),
+      Animated.loop(Animated.sequence([Animated.timing(ambientRibbon, { toValue: 1, duration: 4200, useNativeDriver: true }), Animated.timing(ambientRibbon, { toValue: 0, duration: 4200, useNativeDriver: true })])),
+      Animated.loop(Animated.sequence([Animated.timing(headlineFloat, { toValue: 1, duration: 2600, useNativeDriver: true }), Animated.timing(headlineFloat, { toValue: 0, duration: 2600, useNativeDriver: true })])),
     ];
 
     loops.forEach((loop) => loop.start());
     return () => loops.forEach((loop) => loop.stop());
-  }, [badgeFloatA, badgeFloatB, filtersEntrance, heroEntrance, orbFloat, pulseDot, quickAnimations, shimmerTranslate, statAnimations]);
+  }, [ambientRibbon, badgeFloatA, badgeFloatB, filtersEntrance, headlineFloat, heroEntrance, orbFloat, pulseDot, quickAnimations, shimmerTranslate, statAnimations]);
 
   const countryOptions = useMemo(() => {
     const base = ['USA', 'UK', 'Canada', 'Germany', 'Remote'];
@@ -195,17 +222,56 @@ export default function JobsListScreen({ navigation }: Props) {
   }, [jobs, q, countryFilter, jobTypeFilter, user]);
 
   const displayName = useMemo(() => {
+    if (managedViewActive) return managedCandidateName;
     const firstLast = `${String(user?.firstName || '').trim()} ${String(user?.lastName || '').trim()}`.trim();
     const full = String(user?.name || user?.fullName || firstLast || '').trim();
     if (full) return full;
     const emailName = String(user?.email || '').split('@')[0].trim();
     return emailName || 'User';
-  }, [user]);
+  }, [managedCandidateName, managedViewActive, user]);
 
-  const shortName = useMemo(() => displayName.split(/\s+/)[0] || displayName, [displayName]);
+  const companyName = useMemo(() => {
+    if (managedViewActive) return managedCandidateName;
+    const resolved = getCompanyName(user);
+    return resolved || displayName || 'Agent workspace';
+  }, [displayName, managedCandidateName, managedViewActive, user]);
+
+  const supportLabel = useMemo(() => {
+    if (managedViewActive) {
+      const role = pickAny(managedCandidate, ['profession', 'jobInterest', 'qualification']);
+      const location = pickAny(managedCandidate, ['location', 'country']);
+      const visa = pickAny(managedCandidate, ['visaStatus']);
+      if (role && location) return `${role} - ${location}`;
+      if (role) return `${role} candidate desk`;
+      if (location) return `Working toward roles in ${location}`;
+      if (visa) return `Visa status - ${visa}`;
+      return 'Managed candidate job search desk';
+    }
+    const lead = String(user?.contactPerson || displayName || '').trim();
+    return lead && lead !== companyName ? `Workspace lead - ${lead}` : 'Managed candidate operations';
+  }, [companyName, displayName, managedCandidate, managedViewActive, user]);
+
+  const exitManagedView = useCallback(async () => {
+    if (!managedViewActive || !token || !user) return;
+    await signIn({ token, user: stripManagedViewState(user) });
+    navigation.getParent()?.navigate('Candidates' as never);
+  }, [managedViewActive, navigation, signIn, token, user]);
 
   const avatarUri = useMemo(() => {
-    const candidate = String(serverAvatarRaw || user?.avatarUrl || user?.avatar || user?.picture || user?.profileImage || user?.profilePic || user?.profilePicture || user?.photoUrl || user?.photo || user?.image || '').trim();
+    const candidate = String(
+      serverAvatarRaw ||
+        user?.companyLogo ||
+        user?.avatarUrl ||
+        user?.avatar ||
+        user?.picture ||
+        user?.profileImage ||
+        user?.profilePic ||
+        user?.profilePicture ||
+        user?.photoUrl ||
+        user?.photo ||
+        user?.image ||
+        ''
+    ).trim();
     if (!candidate) return '';
     if (/^https?:\/\//i.test(candidate)) return candidate;
     const base = String(api.defaults.baseURL || '').replace(/\/+$/, '');
@@ -223,7 +289,19 @@ export default function JobsListScreen({ navigation }: Props) {
       try {
         const profile = await AuthService.getProfile();
         const u = (profile as any)?.user || profile;
-        const raw = String(u?.picture || u?.avatarUrl || u?.avatar || u?.profileImage || u?.profilePic || u?.profilePicture || u?.photoUrl || u?.photo || u?.image || '').trim();
+        const raw = String(
+          u?.companyLogo ||
+            u?.picture ||
+            u?.avatarUrl ||
+            u?.avatar ||
+            u?.profileImage ||
+            u?.profilePic ||
+            u?.profilePicture ||
+            u?.photoUrl ||
+            u?.photo ||
+            u?.image ||
+            ''
+        ).trim();
         setServerAvatarRaw(raw);
       } catch {
         // keep existing fallback
@@ -236,24 +314,32 @@ export default function JobsListScreen({ navigation }: Props) {
   }, [navigation]);
 
   useEffect(() => {
-    (async () => {
-      const saved = await getSavedJobs(userId);
-      setSavedIds(saved.map((j) => jobKey(j)).filter(Boolean));
-    })();
-  }, [userId]);
+    const loadSavedIds = async () => {
+      try {
+        const saved = await WishlistService.list(managedCandidateId ? { managedCandidateId } : undefined);
+        setSavedIds(saved.map((item) => jobKey(item?.job || item)).filter(Boolean));
+      } catch {
+        setSavedIds([]);
+      }
+    };
+
+    const unsub = navigation.addListener('focus', loadSavedIds);
+    loadSavedIds();
+    return unsub;
+  }, [managedCandidateId, navigation]);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await ApplicationsService.my();
+        const res = await ApplicationsService.my(managedCandidateId ? { candidateId: managedCandidateId, managedCandidateId } : undefined);
         const arr: any[] = Array.isArray(res) ? res : (res as any)?.applications || (res as any)?.items || [];
         const ids = arr.map((a: any) => a?.job?._id || a?.job?.id || a?.jobId || a?.job).map((x: any) => String(x || '').trim()).filter(Boolean);
-        setAppliedIds(Array.from(new Set(ids)));
+        setAppliedIds(Array.from(new Set([...(managedViewActive ? managedAppliedJobIds : []), ...ids])));
       } catch {
-        setAppliedIds([]);
+        setAppliedIds(managedViewActive ? managedAppliedJobIds : []);
       }
     })();
-  }, []);
+  }, [managedAppliedJobIds, managedCandidateId, managedViewActive]);
 
   const scrollToJobsSection = () => {
     listRef.current?.scrollToOffset({
@@ -262,14 +348,46 @@ export default function JobsListScreen({ navigation }: Props) {
     });
   };
 
-  const quickActions = [
-    { ...QUICK_ACTION_META[0], action: scrollToJobsSection },
-    { ...QUICK_ACTION_META[1], action: () => navigation.getParent()?.navigate('Jobs' as never) },
-    { ...QUICK_ACTION_META[2], action: () => (navigation.getParent() as any)?.navigate('Tasks', { screen: 'TasksList' }) },
-    { ...QUICK_ACTION_META[3], action: () => (navigation.getParent() as any)?.navigate('Inquiries', { screen: 'InquiryList' }) },
-    { ...QUICK_ACTION_META[4], action: () => (navigation.getParent() as any)?.navigate('Meetings', { screen: 'MeetingsList' }) },
-    { ...QUICK_ACTION_META[5], action: () => (navigation.getParent() as any)?.navigate('Documents', { screen: 'DocumentsHome' }) },
-  ];
+  const toggleSavedJob = useCallback(
+    async (job: Job, cardKey: string) => {
+      const jobId = String(job?._id || (job as any)?.id || '').trim();
+      if (!jobId) return;
+
+      const previous = savedIds;
+      const wasSaved = previous.includes(cardKey);
+      const optimistic = wasSaved ? previous.filter((x) => x !== cardKey) : [cardKey, ...previous];
+      setSavedIds(optimistic);
+
+      try {
+        if (wasSaved) {
+          await WishlistService.remove(jobId, managedCandidateId ? { managedCandidateId } : undefined);
+        } else {
+          await WishlistService.save(jobId, managedCandidateId ? { managedCandidateId } : undefined);
+        }
+      } catch {
+        setSavedIds(previous);
+      }
+    },
+    [managedCandidateId, savedIds]
+  );
+
+  const quickActions = managedViewActive
+    ? [
+        { ...MANAGED_HOME_QUICK_ACTION_META[0], action: scrollToJobsSection },
+        { ...MANAGED_HOME_QUICK_ACTION_META[1], action: () => navigation.getParent()?.navigate('Overview' as never) },
+        { ...MANAGED_HOME_QUICK_ACTION_META[2], action: () => navigation.getParent()?.navigate('Applications' as never) },
+        { ...MANAGED_HOME_QUICK_ACTION_META[3], action: () => navigation.getParent()?.navigate('Documents' as never) },
+        { ...MANAGED_HOME_QUICK_ACTION_META[4], action: () => navigation.getParent()?.navigate('Tasks' as never) },
+        { ...MANAGED_HOME_QUICK_ACTION_META[5], action: () => navigation.getParent()?.navigate('Meetings' as never) },
+        { ...MANAGED_HOME_QUICK_ACTION_META[6], action: () => navigation.getParent()?.navigate('Inquiries' as never) },
+        { ...MANAGED_HOME_QUICK_ACTION_META[7], action: () => navigation.getParent()?.navigate('Invoices' as never) },
+      ]
+    : [
+        { ...QUICK_ACTION_META[0], action: scrollToJobsSection },
+        { ...QUICK_ACTION_META[1], action: () => navigation.getParent()?.navigate('Candidates' as never) },
+        { ...QUICK_ACTION_META[2], action: () => navigation.getParent()?.navigate('Overview' as never) },
+        { ...QUICK_ACTION_META[3], action: () => navigation.getParent()?.navigate('Analytics' as never) },
+      ];
 
   const featuredCount = useMemo(() => filtered.filter((item) => {
     const tags = splitList((item as any)?.tags).map((x) => x.toLowerCase());
@@ -283,6 +401,17 @@ export default function JobsListScreen({ navigation }: Props) {
   }).length, [filtered]);
 
   const activeFilterCount = [countryFilter, jobTypeFilter, q.trim()].filter(Boolean).length;
+  const heroStats = managedViewActive
+    ? [
+        { label: 'Open roles', value: String(filtered.length || jobs.length), icon: 'briefcase' as const },
+        { label: 'Applied', value: String(appliedIds.length), icon: 'file-text' as const },
+        { label: 'Saved roles', value: String(savedIds.length), icon: 'bookmark' as const },
+      ]
+    : [
+        { label: 'Open roles', value: String(filtered.length || jobs.length), icon: 'briefcase' as const },
+        { label: 'Featured', value: String(featuredCount), icon: 'star' as const },
+        { label: 'Saved roles', value: String(savedIds.length), icon: 'bookmark' as const },
+      ];
 
   const heroTranslateY = heroEntrance.interpolate({ inputRange: [0, 1], outputRange: [28, 0] });
   const heroOpacity = heroEntrance.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
@@ -308,6 +437,11 @@ export default function JobsListScreen({ navigation }: Props) {
   const signalBarTwo = badgeFloatA.interpolate({ inputRange: [0, 1], outputRange: [0.45, 1] });
   const signalBarThree = badgeFloatB.interpolate({ inputRange: [0, 1], outputRange: [0.65, 1] });
   const brandUnderlineScale = pulseDot.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] });
+  const ambientRibbonX = ambientRibbon.interpolate({ inputRange: [0, 1], outputRange: [-36, 26] });
+  const ambientRibbonReverseX = ambientRibbon.interpolate({ inputRange: [0, 1], outputRange: [22, -20] });
+  const ambientRibbonRotate = ambientRibbon.interpolate({ inputRange: [0, 1], outputRange: ['-18deg', '12deg'] });
+  const headlineTranslateY = headlineFloat.interpolate({ inputRange: [0, 1], outputRange: [0, -4] });
+  const headlineGlowOpacity = headlineFloat.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.26] });
 
   const renderEmpty = () => loading ? (
     <View style={styles.skeletonWrap}>
@@ -315,7 +449,7 @@ export default function JobsListScreen({ navigation }: Props) {
       <Skeleton height={160} />
     </View>
   ) : (
-    <EmptyState icon="o" title={errorMessage ? 'Unable to load jobs' : 'No jobs found'} message={errorMessage || 'Try different keywords or refresh.'} />
+    <EmptyState icon="o" title={errorMessage ? 'Unable to load roles' : 'No roles found'} message={errorMessage || 'Try different keywords or refresh.'} />
   );
 
   return (
@@ -338,6 +472,14 @@ export default function JobsListScreen({ navigation }: Props) {
         }
         ListHeaderComponent={
           <View>
+            {managedViewActive ? (
+              <ManagedViewBanner
+                candidateName={managedCandidateName}
+                subtitle="Browsing live roles for the active managed candidate under your agent session."
+                actionLabel="Change Agent Desk"
+                onExit={exitManagedView}
+              />
+            ) : null}
             <Animated.View style={[styles.heroShell, { opacity: heroOpacity, transform: [{ translateY: heroTranslateY }] }]}>
               <LinearGradient colors={t.colors.gradientHeader as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.heroCard}>
                 <Animated.View pointerEvents="none" style={[styles.heroShimmer, { opacity: heroSweepOpacity, transform: [{ translateX: shimmerX }, { rotate: '18deg' }] }]}>
@@ -347,6 +489,8 @@ export default function JobsListScreen({ navigation }: Props) {
                 <Animated.View style={[styles.heroGlowBottom, { transform: [{ translateY: heroGlowBottomTranslateY }] }]} />
                 <Animated.View style={[styles.heroMicroOrb, styles.heroMicroOrbLeft, { transform: [{ translateY: microFloatA }, { scale: brandMarkScale }] }]} />
                 <Animated.View style={[styles.heroMicroOrb, styles.heroMicroOrbRight, { transform: [{ translateY: microFloatB }] }]} />
+                <Animated.View pointerEvents="none" style={[styles.heroAmbientRibbon, { opacity: heroSweepOpacity, transform: [{ translateX: ambientRibbonX }, { rotate: ambientRibbonRotate }] }]} />
+                <Animated.View pointerEvents="none" style={[styles.heroAmbientRibbonSecondary, { opacity: headlineGlowOpacity, transform: [{ translateX: ambientRibbonReverseX }, { translateY: heroGlowBottomTranslateY }, { rotate: '-22deg' }] }]} />
 
                 <View style={styles.heroBrandRow}>
                   <View style={styles.brandPill}>
@@ -354,30 +498,47 @@ export default function JobsListScreen({ navigation }: Props) {
                       <View style={styles.brandPillMarkGlow} />
                       <Image source={require('../../../assets/blue-whale-favicon.png')} style={styles.brandPillIcon} resizeMode="contain" />
                     </Animated.View>
-                    <Text style={[styles.brandPillText, { fontFamily: t.typography.fontFamily.bold }]}>bluewhale-agent-mobile Jobs</Text>
+                    <Text style={[styles.brandPillText, { fontFamily: t.typography.fontFamily.bold }]}>{managedViewActive ? 'Blue Whale Managed Desk' : 'Blue Whale Agent Desk'}</Text>
                   </View>
-                  <View style={styles.heroAvatarWrap}>
-                    <Animated.View pointerEvents="none" style={[styles.heroAvatarOrbit, { transform: [{ rotate: avatarOrbitRotate }] }]}>
-                      <View style={styles.heroAvatarOrbitDot} />
-                    </Animated.View>
-                    <Animated.View pointerEvents="none" style={[styles.heroAvatarHalo, { transform: [{ scale: avatarHaloScale }], opacity: pulseOpacity }]} />
-                    {avatarUri && !avatarFailed ? (
-                      <Image source={{ uri: avatarUri }} style={styles.avatarImage} onError={() => setAvatarFailed(true)} />
-                    ) : (
-                      <Feather name="user" size={18} color="#E9F1FF" />
-                    )}
+                  <View style={styles.heroBrandControls}>
+                    {managedViewActive ? (
+                      <Pressable onPress={exitManagedView} style={({ pressed }) => [styles.heroDeskButton, pressed && styles.pressed]}>
+                        <Feather name="repeat" size={13} color="#1B4E9D" />
+                        <Text style={[styles.heroDeskButtonText, { fontFamily: t.typography.fontFamily.bold }]}>Change Agent Desk</Text>
+                      </Pressable>
+                    ) : null}
+                    <View style={styles.heroAvatarWrap}>
+                      <Animated.View pointerEvents="none" style={[styles.heroAvatarOrbit, { transform: [{ rotate: avatarOrbitRotate }] }]}>
+                        <View style={styles.heroAvatarOrbitDot} />
+                      </Animated.View>
+                      <Animated.View pointerEvents="none" style={[styles.heroAvatarHalo, { transform: [{ scale: avatarHaloScale }], opacity: pulseOpacity }]} />
+                      {avatarUri && !avatarFailed ? (
+                        <Image source={{ uri: avatarUri }} style={styles.avatarImage} onError={() => setAvatarFailed(true)} />
+                      ) : (
+                        <Feather name="user" size={18} color="#E9F1FF" />
+                      )}
+                    </View>
                   </View>
                 </View>
 
                 <View style={styles.heroMainRow}>
                   <View style={styles.heroTextColumn}>
-                    <Text style={[styles.heroEyebrow, { fontFamily: t.typography.fontFamily.medium }]}>Jobs dashboard</Text>
-                    <Text style={[styles.heroTitle, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
-                      Hi {shortName}
-                    </Text>
-                    {!veryShortScreen ? (
+                    <Text style={[styles.heroEyebrow, { fontFamily: t.typography.fontFamily.medium }]}>{managedViewActive ? 'Managed candidate jobs desk' : 'Candidate operations hub'}</Text>
+                    <Animated.View style={[styles.heroTitleWrap, { transform: [{ translateY: headlineTranslateY }] }]}>
+                      <Animated.View pointerEvents="none" style={[styles.heroTitleGlow, { opacity: headlineGlowOpacity, transform: [{ scale: brandMarkScale }] }]} />
+                      <Text style={[styles.heroTitle, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.82}>
+                        {companyName}
+                      </Text>
+                    </Animated.View>
+                    <Animated.View style={[styles.heroSupportPill, { transform: [{ translateY: badgeTranslateYB }] }]}>
+                      <Animated.View style={[styles.heroSupportDot, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
+                      <Text style={[styles.heroSupportText, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>{supportLabel}</Text>
+                    </Animated.View>
+{!veryShortScreen ? (
                       <Text style={[styles.heroSubtitle, { fontFamily: t.typography.fontFamily.medium }]}>
-                        Find, save, and apply faster.
+                        {managedViewActive
+                          ? `Welcome back to ${managedCandidateName}'s home desk. Review live roles, compare agent pricing, and manage this candidate's next steps.`
+                          : `Welcome back, ${displayName}. Review open roles, compare agent pricing, and manage submissions for your candidates.`}
                       </Text>
                     ) : null}
                     <View style={[styles.heroSignalBars, veryShortScreen && styles.heroSignalBarsCompact]}>
@@ -404,18 +565,14 @@ export default function JobsListScreen({ navigation }: Props) {
                     </Animated.View>
                     <Animated.View style={[styles.heroSignalPill, { transform: [{ translateY: badgeTranslateYA }, { translateX: heroGlowTopTranslateX }] }]}>
                       <Animated.View style={[styles.heroSignalDot, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
-                      <Text style={styles.heroSignalText}>Live jobs</Text>
+                      <Text style={styles.heroSignalText}>Live roles</Text>
                     </Animated.View>
                   </View>
                 </View>
 
                 {!veryShortScreen ? (
                   <Animated.View style={[styles.heroStatsRow, { transform: [{ translateY: statsTranslateY }] }]}>
-                    {[
-                      { label: 'Open roles', value: String(filtered.length || jobs.length), icon: 'briefcase' as const },
-                      { label: 'Featured', value: String(featuredCount), icon: 'star' as const },
-                      { label: 'Saved', value: String(savedIds.length), icon: 'bookmark' as const },
-                    ].map((stat, index) => {
+                    {heroStats.map((stat, index) => {
                       const translateY = statAnimations[index].interpolate({ inputRange: [0, 1], outputRange: [18, 0] });
                       return (
                         <Animated.View key={stat.label} style={[styles.heroStatCard, shortScreen && styles.heroStatCardCompact, { opacity: statAnimations[index], transform: [{ translateY }] }]}>
@@ -435,7 +592,7 @@ export default function JobsListScreen({ navigation }: Props) {
             {!veryShortScreen ? (
               <View style={styles.quickActionsHeader}>
                 <View>
-                  <Text style={[styles.sectionTitle, shortScreen && styles.sectionTitleCompact, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>Workspace shortcuts</Text>
+                  <Text style={[styles.sectionTitle, shortScreen && styles.sectionTitleCompact, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>{managedViewActive ? 'Candidate shortcuts' : 'Agent shortcuts'}</Text>
                 </View>
               </View>
             ) : null}
@@ -447,31 +604,35 @@ export default function JobsListScreen({ navigation }: Props) {
             >
               {quickActions.map((item, index) => {
                 const translateY = quickAnimations[index].interpolate({ inputRange: [0, 1], outputRange: [22, 0] });
+                const isPressed = pressedQuickAction === item.key;
                 return (
                   <Animated.View key={item.key} style={{ opacity: quickAnimations[index], transform: [{ translateY }] }}>
                     <Pressable
                       onPress={item.action}
+                      onPressIn={() => setPressedQuickAction(item.key)}
+                      onPressOut={() => setPressedQuickAction((current) => (current === item.key ? null : current))}
                       style={({ pressed }) => [
                         styles.quickCard,
                         {
-                          width: compactShortcutWidth,
-                          minHeight: veryShortScreen ? 64 : shortScreen ? 72 : 82,
+                          width: quickCardWidth,
                           backgroundColor: item.tint,
-                          borderColor: item.active ? '#C8D9F7' : '#D8E4F6',
+                          borderColor: isPressed ? item.gradient[0] : item.active ? '#C8D9F7' : '#D8E4F6',
                         },
                         item.active ? styles.quickCardActive : styles.quickCardIdle,
-                        shortScreen && styles.quickCardCompact,
+                        isPressed && styles.quickCardPressedSoft,
                         pressed && styles.pressed,
                       ]}
                     >
-                      <LinearGradient colors={item.gradient as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.quickCardGlow} />
-                      <LinearGradient colors={item.gradient as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={[styles.quickIconChip, shortScreen && styles.quickIconChipCompact]}>
-                        <Feather name={item.icon} size={18} color="#F8FAFC" />
-                      </LinearGradient>
-                      <Text style={[styles.quickText, shortScreen && styles.quickTextCompact, { color: '#15306F', fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
-                        {item.key}
-                      </Text>
-                      {!veryShortScreen ? <Text style={[styles.quickCaption, shortScreen && styles.quickCaptionCompact, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>{item.caption}</Text> : null}
+                      <View style={styles.quickCardFill}>
+                        <LinearGradient colors={item.gradient as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.quickCardGlow} />
+                        <LinearGradient colors={item.gradient as any} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.quickIconChip}>
+                          <Feather name={item.icon} size={16} color="#F8FAFC" />
+                        </LinearGradient>
+                        <Text style={[styles.quickText, { color: '#15306F', fontFamily: t.typography.fontFamily.bold }]} numberOfLines={2}>
+                          {item.key}
+                        </Text>
+                        <Text style={[styles.quickCaption, { color: '#65789A', fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>{item.caption}</Text>
+                      </View>
                     </Pressable>
                   </Animated.View>
                 );
@@ -500,7 +661,7 @@ export default function JobsListScreen({ navigation }: Props) {
 
               {!shortScreen ? <View style={styles.discoveryTopRow}>
                 <View style={styles.discoveryCopy}>
-                  <Text style={[styles.discoveryTitle, { fontFamily: t.typography.fontFamily.bold }]}>Find the right jobs faster with clearer matches.</Text>
+                  <Text style={[styles.discoveryTitle, { fontFamily: t.typography.fontFamily.bold }]}>Search roles for your candidates with faster filtering.</Text>
                 </View>
                 <View style={[styles.discoveryLivePill, { backgroundColor: t.isDark ? 'rgba(79, 113, 210, 0.2)' : 'rgba(15, 121, 197, 0.1)' }]}>
                   <Animated.View style={[styles.discoveryPulseDot, { backgroundColor: t.colors.secondary, opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
@@ -515,7 +676,7 @@ export default function JobsListScreen({ navigation }: Props) {
                 <TextInput
                   value={q}
                   onChangeText={setQ}
-                  placeholder="Search jobs, company, salary, requirements..."
+                  placeholder="Search roles, company, salary, or requirements..."
                   placeholderTextColor={t.colors.grayMutedDark}
                   style={[styles.search, { color: t.colors.text, fontFamily: t.typography.fontFamily.medium }]}
                   returnKeyType="search"
@@ -630,11 +791,11 @@ export default function JobsListScreen({ navigation }: Props) {
               {!shortScreen ? <View style={styles.filterInsightsRow}>
                 <View style={[styles.insightChip, { backgroundColor: t.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.82)', borderColor: t.colors.border }]}>
                   <Text style={[styles.insightValue, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>{filtered.length}</Text>
-                  <Text style={[styles.insightLabel, { color: t.colors.grayMutedDark, fontFamily: t.typography.fontFamily.medium }]}>matches</Text>
+                  <Text style={[styles.insightLabel, { color: t.colors.grayMutedDark, fontFamily: t.typography.fontFamily.medium }]}>matched roles</Text>
                 </View>
                 <View style={[styles.insightChip, { backgroundColor: t.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.82)', borderColor: t.colors.border }]}>
                   <Text style={[styles.insightValue, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>{remoteCount}</Text>
-                  <Text style={[styles.insightLabel, { color: t.colors.grayMutedDark, fontFamily: t.typography.fontFamily.medium }]}>remote</Text>
+                  <Text style={[styles.insightLabel, { color: t.colors.grayMutedDark, fontFamily: t.typography.fontFamily.medium }]}>remote roles</Text>
                 </View>
                 <View style={[styles.insightChip, { backgroundColor: t.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.82)', borderColor: t.colors.border }]}>
                   <Text style={[styles.insightValue, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>{activeFilterCount}</Text>
@@ -650,10 +811,10 @@ export default function JobsListScreen({ navigation }: Props) {
               }}
             >
               <View>
-                <Text style={[styles.listHeaderTitle, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>Latest Jobs</Text>
+                <Text style={[styles.listHeaderTitle, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>Available Roles</Text>
               </View>
               <View style={[styles.listHeaderPill, { backgroundColor: t.isDark ? 'rgba(79, 113, 210, 0.2)' : 'rgba(15, 121, 197, 0.1)' }]}>
-                <Text style={[styles.listHeaderPillText, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>{`${filtered.length} found`}</Text>
+                <Text style={[styles.listHeaderPillText, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>{`${filtered.length} roles found`}</Text>
               </View>
             </View>
           </View>
@@ -717,20 +878,7 @@ export default function JobsListScreen({ navigation }: Props) {
                 <Pressable
                   style={({ pressed }) => [styles.favWrap, { backgroundColor: isSaved ? 'rgba(255, 84, 105, 0.14)' : t.isDark ? 'rgba(255,255,255,0.05)' : 'rgba(255,255,255,0.86)', borderColor: isSaved ? 'rgba(255, 84, 105, 0.22)' : t.colors.border }, pressed && styles.pressed]}
                   hitSlop={12}
-                  onPress={async () => {
-                    const wasSaved = savedIds.includes(cardKey);
-                    const optimistic = wasSaved ? savedIds.filter((x) => x !== cardKey) : [cardKey, ...savedIds];
-                    setSavedIds(optimistic);
-                    try {
-                      const current = await getSavedJobs(userId);
-                      const exists = current.some((j) => jobKey(j) === cardKey);
-                      const next = exists ? current.filter((j) => jobKey(j) !== cardKey) : [item, ...current];
-                      await setSavedJobs(userId, next);
-                      setSavedIds(next.map((j) => jobKey(j)).filter(Boolean));
-                    } catch {
-                      setSavedIds(wasSaved ? [...savedIds] : savedIds.filter((x) => x !== cardKey));
-                    }
-                  }}
+                  onPress={() => toggleSavedJob(item, cardKey)}
                 >
                   <Animated.View pointerEvents="none" style={[styles.favGlow, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
                   <Feather name="heart" size={18} color={isSaved ? '#FF3B45' : t.colors.grayMutedDark} />
@@ -751,7 +899,7 @@ export default function JobsListScreen({ navigation }: Props) {
 
                   <View style={[styles.metaCard, styles.metaCardGreen]}>
                     <Feather name="clock" size={14} color="#18A564" />
-                    <Text style={[styles.metaLineText, styles.metaLineTextGreen, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>{`Pricing: ${pricing}`}</Text>
+                    <Text style={[styles.metaLineText, styles.metaLineTextGreen, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>{`Agent price: ${pricing}`}</Text>
                   </View>
 
                   <View style={[styles.metaCard, styles.metaCardOrange]}>
@@ -784,36 +932,14 @@ export default function JobsListScreen({ navigation }: Props) {
 
               <View style={styles.cardButtonsRow}>
                 <Pressable
-                  style={({ pressed }) => [styles.detailsBtn, pressed && styles.pressed]}
+                  style={({ pressed }) => [styles.detailsBtn, styles.detailsBtnFull, pressed && styles.pressed]}
                   onPress={(e) => {
                     e.stopPropagation();
                     navigation.navigate('JobDetails', { jobId: item._id });
                   }}
                 >
                   <Feather name="file-text" size={16} color={t.colors.primary} />
-                  <Text style={[styles.detailsBtnText, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>Details</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={(e) => {
-                    e.stopPropagation();
-                    if (!isApplied) {
-                      navigation.navigate('ApplyJob', { jobId: item._id });
-                    }
-                  }}
-                  style={({ pressed }) => [{ flex: 1 }, pressed && styles.pressed]}
-                >
-                  {isApplied ? (
-                    <View style={styles.appliedBtn}>
-                      <Feather name="check-circle" size={16} color={t.colors.success} />
-                      <Text style={[styles.appliedBtnText, { color: t.colors.success, fontFamily: t.typography.fontFamily.bold }]}>Applied</Text>
-                    </View>
-                  ) : (
-                    <LinearGradient colors={t.colors.gradientButton as any} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.applyBtn}>
-                      <Feather name="send" size={16} color="#FFFFFF" />
-                      <Text style={[styles.applyBtnText, { fontFamily: t.typography.fontFamily.bold }]}>Apply now</Text>
-                    </LinearGradient>
-                  )}
+                  <Text style={[styles.detailsBtnText, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>Review</Text>
                 </Pressable>
               </View>
             </View>
@@ -890,10 +1016,29 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     backgroundColor: 'rgba(167, 243, 208, 0.5)',
   },
+  heroAmbientRibbon: {
+    position: 'absolute',
+    top: 78,
+    left: -28,
+    width: 180,
+    height: 54,
+    borderRadius: 28,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  heroAmbientRibbonSecondary: {
+    position: 'absolute',
+    top: 26,
+    right: 28,
+    width: 120,
+    height: 34,
+    borderRadius: 20,
+    backgroundColor: 'rgba(167,243,208,0.16)',
+  },
   heroBrandRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 10,
     marginBottom: 8,
   },
   brandPill: {
@@ -929,6 +1074,28 @@ const styles = StyleSheet.create({
   },
   brandPillText: {
     color: '#FFFFFF',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
+  },
+  heroBrandControls: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  heroDeskButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+  },
+  heroDeskButtonText: {
+    color: '#1B4E9D',
     fontSize: 11,
     lineHeight: 14,
     fontWeight: '800',
@@ -988,12 +1155,52 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     letterSpacing: 0.3,
   },
+  heroTitleWrap: {
+    marginTop: 8,
+    position: 'relative',
+    paddingRight: 4,
+  },
+  heroTitleGlow: {
+    position: 'absolute',
+    left: -6,
+    right: 24,
+    top: 8,
+    height: 22,
+    borderRadius: 999,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
   heroTitle: {
-    marginTop: 6,
     color: '#FFFFFF',
-    fontSize: 22,
-    lineHeight: 26,
+    fontSize: 25,
+    lineHeight: 30,
     fontWeight: '900',
+    letterSpacing: -0.6,
+  },
+  heroSupportPill: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.18)',
+    maxWidth: '96%',
+  },
+  heroSupportDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    marginRight: 7,
+    backgroundColor: '#A7F3D0',
+  },
+  heroSupportText: {
+    color: '#F4F8FF',
+    fontSize: 11,
+    lineHeight: 14,
+    fontWeight: '800',
   },
   heroSubtitle: {
     marginTop: 4,
@@ -1191,31 +1398,22 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   quickRow: {
-    paddingTop: 6,
+    paddingTop: 14,
     paddingRight: 8,
     gap: 10,
     paddingBottom: 6,
-    marginBottom: 12,
   },
   quickCard: {
+    minWidth: 102,
     borderRadius: 20,
     borderWidth: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 10,
     overflow: 'hidden',
-  },
-  quickCardCompact: {
-    borderRadius: 16,
-    paddingHorizontal: 6,
-    paddingVertical: 8,
   },
   quickCardActive: {
     shadowColor: '#315CA8',
     shadowOpacity: 0.2,
     shadowRadius: 18,
-    shadowOffset: { width: 0, height: 10 },
+    shadowOffset: { width: 0, height: 8 },
     elevation: 6,
   },
   quickCardIdle: {
@@ -1225,12 +1423,24 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     elevation: 3,
   },
+  quickCardPressedSoft: {
+    shadowOpacity: 0.16,
+    shadowRadius: 14,
+    elevation: 4,
+  },
   quickCardGlow: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     height: 5,
+  },
+  quickCardFill: {
+    minHeight: 82,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   quickIconChip: {
     width: 34,
@@ -1240,21 +1450,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 8,
   },
-  quickIconChipCompact: {
-    width: 28,
-    height: 28,
-    borderRadius: 10,
-    marginBottom: 6,
-  },
   quickText: {
     fontSize: 11,
     lineHeight: 14,
     fontWeight: '800',
     textAlign: 'center',
-  },
-  quickTextCompact: {
-    fontSize: 10,
-    lineHeight: 12,
+    minHeight: 28,
   },
   quickCaption: {
     marginTop: 2,
@@ -1263,10 +1464,7 @@ const styles = StyleSheet.create({
     lineHeight: 11,
     fontWeight: '600',
     textAlign: 'center',
-  },
-  quickCaptionCompact: {
-    fontSize: 8,
-    lineHeight: 10,
+    minHeight: 11,
   },
   discoveryPanel: {
     borderWidth: 1,
@@ -1707,6 +1905,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
   },
+  detailsBtnFull: {
+    flex: 1,
+  },
   detailsBtnText: {
     fontSize: 14,
     lineHeight: 18,
@@ -1746,3 +1947,12 @@ const styles = StyleSheet.create({
     opacity: 0.92,
   },
 });
+
+
+
+
+
+
+
+
+

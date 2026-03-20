@@ -16,6 +16,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Feather } from '@expo/vector-icons';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -84,6 +85,7 @@ const dayLabel = (value?: string) => {
 export default function ChatRoomScreen({ route, navigation }: Props) {
   const t = useTheme();
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
   const { width } = useWindowDimensions();
   const compact = width < 390;
   const { adminId, title, adminEmail, adminRole } = route.params;
@@ -352,13 +354,17 @@ export default function ChatRoomScreen({ route, navigation }: Props) {
   };
 
   const messagesTopPadding = 126;
-  const composerBottomSpacing = keyboardHeight > 0 ? Math.max(insets.bottom, 10) : insets.bottom + 82;
+  const composerBottomSpacing = keyboardHeight > 0 ? Math.max(insets.bottom + 104, 120) : insets.bottom + tabBarHeight + 66;
   const messagesBottomPadding = keyboardHeight > 0 ? 18 : 12;
 
   return (
     <SafeAreaView style={styles.root} edges={['top', 'left', 'right']}>
       <PageDecor />
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
         <View pointerEvents="none" style={styles.chatAmbient}>
           <Animated.View style={[styles.chatAmbientOrbA, { transform: [{ translateY: driftY }] }]} />
           <Animated.View style={[styles.chatAmbientOrbB, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
@@ -1184,3 +1190,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
 });
+
+

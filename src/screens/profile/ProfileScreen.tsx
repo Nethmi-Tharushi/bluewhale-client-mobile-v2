@@ -1,37 +1,57 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Easing, Image, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
+import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Screen } from '../../components/ui';
-import { AuthService } from '../../api/services';
+import { AgentProfileService } from '../../api/services';
 import { api } from '../../api/client';
 import { useAuthStore } from '../../context/authStore';
 import { useTheme } from '../../theme/ThemeProvider';
-import { formatUaeMobileInput } from '../../utils/phone';
-import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { ProfileStackParamList } from '../../navigation/app/AppNavigator';
 
 type Props = NativeStackScreenProps<ProfileStackParamList, 'ProfileHome'>;
 
-const formatDob = (v?: string) => {
-  if (!v) return 'Not provided';
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return v;
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-};
-
-const formatJoin = (v?: string) => {
-  if (!v) return 'N/A';
-  const d = new Date(v);
-  if (Number.isNaN(d.getTime())) return 'N/A';
-  return d.toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
-};
-
-const pickString = (values: any[]) => {
+const pickString = (values: any[], fallback = '') => {
   for (const value of values) {
     if (typeof value === 'string' && value.trim()) return value.trim();
   }
-  return '';
+  return fallback;
+};
+
+const resolveAssetUrl = (raw: string) => {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  if (/^https?:\/\//i.test(value)) return value;
+  const base = String(api.defaults.baseURL || '').replace(/\/+$/, '');
+  const origin = base.replace(/\/api$/i, '');
+  if (!origin) return '';
+  if (value.startsWith('/')) return `${origin}${value}`;
+  if (/^uploads\//i.test(value)) return `${origin}/${value}`;
+  return `${origin}/uploads/${value}`;
+};
+
+const formatJoinDate = (value?: string) => {
+  if (!value) return 'N/A';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'N/A';
+  return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+};
+
+const getProfileCompletion = (user: any) => {
+  const checkpoints = [
+    pickString([user?.name, user?.fullName]),
+    pickString([user?.email]),
+    pickString([user?.phone]),
+    pickString([user?.companyName]),
+    pickString([user?.companyAddress]),
+    pickString([user?.contactPerson]),
+    pickString([user?.companyLogo]),
+    user?.isVerified ? 'verified' : '',
+  ];
+  const completed = checkpoints.filter(Boolean).length;
+  return Math.round((completed / checkpoints.length) * 100);
 };
 
 export default function ProfileScreen({ navigation }: Props) {
@@ -40,6 +60,7 @@ export default function ProfileScreen({ navigation }: Props) {
   const compact = width < 390;
   const storeUser = useAuthStore((s) => s.user);
   const signOut = useAuthStore((s) => s.signOut);
+
   const [user, setUser] = useState<any>(storeUser || null);
   const [loading, setLoading] = useState(false);
   const [avatarFailed, setAvatarFailed] = useState(false);
@@ -49,69 +70,33 @@ export default function ProfileScreen({ navigation }: Props) {
   const sectionsEntrance = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
   const drift = useRef(new Animated.Value(0)).current;
-  const sweep = useRef(new Animated.Value(0)).current;
+  const shimmer = useRef(new Animated.Value(0)).current;
 
-  const resolveUrl = (raw: string) => {
-    const candidate = String(raw || '').trim();
-    if (!candidate) return '';
-    if (/^https?:\/\//i.test(candidate)) return candidate;
-    const base = String(api.defaults.baseURL || '').replace(/\/+$/, '');
-    const origin = base.replace(/\/api$/i, '');
-    if (!origin) return '';
-    if (candidate.startsWith('/')) return `${origin}${candidate}`;
-    if (/^uploads\//i.test(candidate)) return `${origin}/${candidate}`;
-    return `${origin}/uploads/${candidate}`;
-  };
-
-  const avatarUrl = useMemo(
-    () =>
-      resolveUrl(
-        String(
-          user?.avatarUrl ||
-            user?.avatar ||
-            user?.picture ||
-            user?.profileImage ||
-            user?.profilePic ||
-            user?.profilePicture ||
-            user?.photoUrl ||
-            user?.photo ||
-            user?.image ||
-            ''
-        )
-      ),
-    [user]
-  );
-
-  const categories = useMemo(() => {
-    const raw = user?.categories;
-    if (Array.isArray(raw)) return raw.filter(Boolean).map((x: any) => String(x).trim()).filter(Boolean);
-    return String(raw || '')
-      .split(',')
-      .map((x) => x.trim())
-      .filter(Boolean);
-  }, [user]);
-
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await AuthService.getProfile();
-      const u = (res as any)?.user || res;
-      setUser(u || null);
+      const res = await AgentProfileService.getProfile();
+      const nextUser = (res as any)?.user || res;
+      setUser(nextUser || storeUser || null);
       setAvatarFailed(false);
-    } catch {
+    } catch (err: any) {
+      if (Number(err?.response?.status || 0) === 401) {
+        await signOut();
+        return;
+      }
       setUser(storeUser || null);
     } finally {
       setLoading(false);
     }
-  };
+  }, [signOut, storeUser]);
 
-  useEffect(() => {
-    const unsub = navigation.addListener('focus', load);
-    load();
-    return unsub;
-  }, [navigation]);
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, [load])
+  );
 
-  useEffect(() => {
+  React.useEffect(() => {
     Animated.parallel([
       Animated.timing(heroEntrance, {
         toValue: 1,
@@ -122,7 +107,7 @@ export default function ProfileScreen({ navigation }: Props) {
       Animated.timing(sectionsEntrance, {
         toValue: 1,
         duration: 760,
-        delay: 110,
+        delay: 120,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
@@ -143,40 +128,53 @@ export default function ProfileScreen({ navigation }: Props) {
       ),
       Animated.loop(
         Animated.sequence([
-          Animated.timing(sweep, { toValue: 1, duration: 2300, delay: 700, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-          Animated.timing(sweep, { toValue: 0, duration: 0, useNativeDriver: true }),
+          Animated.timing(shimmer, { toValue: 1, duration: 2200, delay: 600, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+          Animated.timing(shimmer, { toValue: 0, duration: 0, useNativeDriver: true }),
         ])
       ),
     ];
 
     loops.forEach((loop) => loop.start());
     return () => loops.forEach((loop) => loop.stop());
-  }, [drift, heroEntrance, pulse, sectionsEntrance, sweep]);
+  }, [drift, heroEntrance, pulse, sectionsEntrance, shimmer]);
 
-  const detailRows = [
-    { key: 'Full Name', value: user?.name || user?.fullName || 'Not provided', icon: 'user' as const, tone: 'blue' as const },
-    { key: 'Email', value: user?.email || 'Not provided', icon: 'mail' as const, tone: 'lavender' as const },
-    { key: 'Phone', value: formatUaeMobileInput(user?.phone || '') || 'Not provided', icon: 'phone' as const, tone: 'mint' as const },
-    { key: 'Date of Birth', value: formatDob(user?.dateOfBirth), icon: 'calendar' as const, tone: 'gold' as const },
-    { key: 'Gender', value: user?.gender || 'Not provided', icon: 'user' as const, tone: 'blue' as const },
-    { key: 'Age Range', value: user?.ageRange || 'Not provided', icon: 'clock' as const, tone: 'lavender' as const },
-    { key: 'Location', value: user?.location || 'Not provided', icon: 'map-pin' as const, tone: 'mint' as const },
-    { key: 'Profession', value: user?.profession || 'Not provided', icon: 'briefcase' as const, tone: 'blue' as const },
-    { key: 'Qualification', value: user?.qualification || 'Not provided', icon: 'file-text' as const, tone: 'lavender' as const },
-    { key: 'Experience', value: user?.experience || 'Not provided', icon: 'award' as const, tone: 'gold' as const },
-    { key: 'Job Interest', value: user?.jobInterest || 'Not provided', icon: 'target' as const, tone: 'mint' as const },
-  ];
-
-  const providedCount = detailRows.filter((row) => row.value !== 'Not provided').length + (user?.aboutMe ? 1 : 0) + (categories.length ? 1 : 0);
-  const completionValue = Math.min(100, Math.round((providedCount / (detailRows.length + 2)) * 100));
-  const completionText = `${completionValue}%`;
-  const profileRole = pickString([user?.profession, user?.jobInterest, 'Candidate profile']);
+  const fullName = pickString([user?.name, user?.fullName], 'Agent');
+  const companyName = pickString([user?.companyName], 'Not provided');
+  const contactPerson = pickString([user?.contactPerson], 'Not provided');
+  const email = pickString([user?.email], 'Not provided');
+  const phone = pickString([user?.phone], 'Not provided');
+  const companyAddress = pickString([user?.companyAddress], 'Not provided');
+  const companyLogo = pickString([user?.companyLogo], '');
+  const logoUrl = useMemo(() => resolveAssetUrl(companyLogo), [companyLogo]);
+  const completion = getProfileCompletion(user);
+  const verified = Boolean(user?.isVerified);
   const heroY = heroEntrance.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
   const sectionY = sectionsEntrance.interpolate({ inputRange: [0, 1], outputRange: [28, 0] });
   const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
-  const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.2, 0.46] });
+  const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.22, 0.46] });
   const driftY = drift.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
-  const sweepX = sweep.interpolate({ inputRange: [0, 1], outputRange: [-180, 280] });
+  const shimmerX = shimmer.interpolate({ inputRange: [0, 1], outputRange: [-170, 250] });
+
+  const detailRows = [
+    { key: 'Company Name', value: companyName, icon: 'briefcase' as const, tone: styles.detailCardBlue },
+    { key: 'Contact Person', value: contactPerson, icon: 'user' as const, tone: styles.detailCardMint },
+    { key: 'Email', value: email, icon: 'mail' as const, tone: styles.detailCardLavender },
+    { key: 'Phone', value: phone, icon: 'phone' as const, tone: styles.detailCardGold },
+    { key: 'Address', value: companyAddress, icon: 'map-pin' as const, tone: styles.detailCardBlue },
+  ];
+
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    const parent = navigation.getParent() as any;
+    if (parent?.canGoBack?.()) {
+      parent.goBack();
+      return;
+    }
+    parent?.navigate?.('Overview');
+  }, [navigation]);
 
   const onLogout = () => {
     if (loggingOut) return;
@@ -196,38 +194,43 @@ export default function ProfileScreen({ navigation }: Props) {
       },
     ]);
   };
-  const handleBack = () => {
-    if (navigation.canGoBack()) {
-      navigation.goBack();
-      return;
-    }
-    navigation.getParent()?.navigate('Home' as never);
-  };
+
+  const metricCards = [
+    { key: 'strength', value: `${completion}%`, label: 'Profile strength', color: '#1768B8', bg: '#EAF2FF', icon: 'activity' as const },
+    { key: 'verified', value: verified ? 'Yes' : 'Pending', label: 'Verification', color: verified ? '#11856E' : '#C7851D', bg: verified ? '#EAF8F0' : '#FFF4E4', icon: verified ? ('shield' as const) : ('clock' as const) },
+    { key: 'logo', value: companyLogo ? 'Ready' : 'Missing', label: 'Company logo', color: companyLogo ? '#7B56D8' : '#D95A67', bg: companyLogo ? '#F1EAFF' : '#FFF0F2', icon: companyLogo ? ('image' as const) : ('alert-circle' as const) },
+  ];
 
   return (
     <LinearGradient colors={['#F5F8FD', '#EEF4FB', '#F7FBFF']} style={styles.root}>
       <Screen padded={false}>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <Animated.View style={[styles.topBar, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
-            <Pressable style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]} onPress={handleBack}>
-              <Feather name="arrow-left" size={18} color="#17326F" />
+            <Pressable onPress={handleBack} style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}>
+              <Feather name="arrow-left" size={18} color="#1B3890" />
             </Pressable>
             <View style={styles.topCopy}>
-              <Text style={[styles.pageEyebrow, { color: t.colors.textMuted, fontFamily: t.typography.fontFamily.bold }]}>Profile studio</Text>
-              <Text style={[styles.pageTitle, { fontFamily: t.typography.fontFamily.bold }]}>My profile</Text>
+              <Text style={[styles.pageEyebrow, { color: t.colors.textMuted, fontFamily: t.typography.fontFamily.bold }]}>Agent profile</Text>
+              <Text style={[styles.pageTitle, { fontFamily: t.typography.fontFamily.bold }]}>Company Profile</Text>
               <Text style={[styles.pageSub, { color: t.colors.grayMutedDark, fontFamily: t.typography.fontFamily.medium }]}>
-                Review your profile and progress.
+                Review your public details and update company information when needed.
               </Text>
             </View>
-            <Pressable style={({ pressed }) => [styles.editButtonTop, pressed && styles.pressed]} onPress={() => navigation.navigate('EditProfile')}>
-              <Feather name="edit-3" size={16} color="#FFFFFF" />
-            </Pressable>
+            <View style={styles.topActions}>
+              <View style={styles.liveChipSolid}>
+                <View style={styles.liveDot} />
+                <Text style={[styles.liveChipText, { fontFamily: t.typography.fontFamily.bold }]}>{loading ? 'Syncing' : 'Live'}</Text>
+              </View>
+              <Pressable style={({ pressed }) => [styles.editButtonTop, pressed && styles.pressed]} onPress={() => navigation.navigate('EditProfile')}>
+                <Feather name="edit-3" size={16} color="#FFFFFF" />
+              </Pressable>
+            </View>
           </Animated.View>
 
           <Animated.View style={[styles.heroCard, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
             <View style={styles.heroGlowA} />
             <Animated.View style={[styles.heroGlowB, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
-            <Animated.View style={[styles.heroSweep, { transform: [{ translateX: sweepX }, { rotate: '18deg' }] }]} />
+            <Animated.View style={[styles.heroSweep, { transform: [{ translateX: shimmerX }, { rotate: '18deg' }] }]} />
 
             <View style={styles.heroHeaderRow}>
               <View style={styles.heroPill}>
@@ -236,7 +239,7 @@ export default function ProfileScreen({ navigation }: Props) {
               </View>
               <View style={styles.heroSignal}>
                 <Animated.View style={[styles.heroSignalDot, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
-                <Text style={[styles.heroSignalText, { fontFamily: t.typography.fontFamily.bold }]}>{loading ? 'Updating' : 'Ready'}</Text>
+                <Text style={[styles.heroSignalText, { fontFamily: t.typography.fontFamily.bold }]}>{loading ? 'Loading' : 'Live'}</Text>
               </View>
             </View>
 
@@ -244,53 +247,41 @@ export default function ProfileScreen({ navigation }: Props) {
               <View style={styles.heroIdentity}>
                 <Animated.View style={[styles.avatarHalo, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
                 <Animated.View style={[styles.avatarWrap, { transform: [{ translateY: driftY }] }]}>
-                  {avatarUrl && !avatarFailed ? (
-                    <Image source={{ uri: avatarUrl }} style={styles.avatarImage} onError={() => setAvatarFailed(true)} />
+                  {logoUrl && !avatarFailed ? (
+                    <Image source={{ uri: logoUrl }} style={styles.avatarImage} onError={() => setAvatarFailed(true)} />
                   ) : (
                     <View style={styles.avatarFallback}>
-                      <Feather name="user" size={34} color="#5E6F95" />
+                      <Feather name="briefcase" size={34} color="#5E6F95" />
                     </View>
                   )}
                 </Animated.View>
 
                 <View style={styles.identityCopy}>
                   <Text style={[styles.name, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
-                    {user?.name || user?.fullName || 'Candidate'}
+                    {fullName}
                   </Text>
                   <Text style={[styles.roleText, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>
-                    {profileRole}
+                    {companyName !== 'Not provided' ? companyName : 'Company details pending'}
                   </Text>
                   <View style={styles.joinedPill}>
                     <Feather name="calendar" size={13} color="#6880A6" />
                     <Text style={[styles.joinedText, { fontFamily: t.typography.fontFamily.medium }]}>
-                      {loading ? 'Loading...' : `Joined ${formatJoin(user?.createdAt)}`}
+                      {loading ? 'Loading...' : `Joined ${formatJoinDate(user?.createdAt)}`}
                     </Text>
                   </View>
                 </View>
               </View>
 
               <View style={styles.metricRail}>
-                <View style={styles.metricCard}>
-                  <View style={[styles.metricIcon, { backgroundColor: '#EAF2FF' }]}>
-                    <Feather name="activity" size={12} color="#1768B8" />
+                {metricCards.map((card) => (
+                  <View key={card.key} style={styles.metricCard}>
+                    <View style={[styles.metricIcon, { backgroundColor: card.bg }]}>
+                      <Feather name={card.icon} size={12} color={card.color} />
+                    </View>
+                    <Text style={[styles.metricValue, { color: card.color, fontFamily: t.typography.fontFamily.bold }]}>{card.value}</Text>
+                    <Text style={[styles.metricLabel, { fontFamily: t.typography.fontFamily.medium }]}>{card.label}</Text>
                   </View>
-                  <Text style={[styles.metricValue, { color: '#1768B8', fontFamily: t.typography.fontFamily.bold }]}>{completionText}</Text>
-                  <Text style={[styles.metricLabel, { fontFamily: t.typography.fontFamily.medium }]}>Profile strength</Text>
-                </View>
-                <View style={styles.metricCard}>
-                  <View style={[styles.metricIcon, { backgroundColor: '#EAF8F0' }]}>
-                    <Feather name="award" size={12} color="#11856E" />
-                  </View>
-                  <Text style={[styles.metricValue, { color: '#11856E', fontFamily: t.typography.fontFamily.bold }]}>{categories.length || 0}</Text>
-                  <Text style={[styles.metricLabel, { fontFamily: t.typography.fontFamily.medium }]}>Skills added</Text>
-                </View>
-                <View style={styles.metricCard}>
-                  <View style={[styles.metricIcon, { backgroundColor: '#FFF4E4' }]}>
-                    <Feather name="map-pin" size={12} color="#C7851D" />
-                  </View>
-                  <Text style={[styles.metricValue, { color: '#C7851D', fontFamily: t.typography.fontFamily.bold }]}>{user?.location ? 'Live' : 'Setup'}</Text>
-                  <Text style={[styles.metricLabel, { fontFamily: t.typography.fontFamily.medium }]}>Status</Text>
-                </View>
+                ))}
               </View>
             </View>
           </Animated.View>
@@ -307,26 +298,14 @@ export default function ProfileScreen({ navigation }: Props) {
 
               <View style={styles.detailGrid}>
                 {detailRows.map((row) => (
-                  <View
-                    key={row.key}
-                    style={[
-                      styles.detailCard,
-                      row.tone === 'blue'
-                        ? styles.detailCardBlue
-                        : row.tone === 'lavender'
-                          ? styles.detailCardLavender
-                          : row.tone === 'mint'
-                            ? styles.detailCardMint
-                            : styles.detailCardGold,
-                    ]}
-                  >
+                  <View key={row.key} style={[styles.detailCard, row.tone]}>
                     <View style={styles.detailIconWrap}>
                       <Feather name={row.icon} size={16} color="#5D6E92" />
                     </View>
                     <View style={styles.detailCopy}>
                       <Text style={[styles.detailLabel, { fontFamily: t.typography.fontFamily.medium }]}>{row.key}</Text>
-                      <Text style={[styles.detailValue, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
-                        {row.value}
+                      <Text style={[styles.detailValue, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={2}>
+                        {row.value || 'Not provided'}
                       </Text>
                     </View>
                   </View>
@@ -336,71 +315,31 @@ export default function ProfileScreen({ navigation }: Props) {
 
             <View style={styles.editorialRow}>
               <View style={[styles.infoBlock, styles.infoBlockWide]}>
-                <Text style={[styles.blockTitle, { fontFamily: t.typography.fontFamily.bold }]}>About me</Text>
+                <Text style={[styles.blockTitle, { fontFamily: t.typography.fontFamily.bold }]}>Company status</Text>
                 <Text style={[styles.blockBody, { fontFamily: t.typography.fontFamily.medium }]}>
-                  {user?.aboutMe || 'Not provided'}
+                  {verified
+                    ? 'Your agency profile is verified and ready to represent managed candidates.'
+                    : 'Verification is still pending. Complete your company details to strengthen trust.'}
                 </Text>
               </View>
 
               <View style={styles.infoColumn}>
                 <View style={styles.infoBlock}>
-                  <Text style={[styles.blockTitle, { fontFamily: t.typography.fontFamily.bold }]}>LinkedIn</Text>
-                  <Text style={[styles.inlineValue, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={2}>
-                    {user?.socialNetworks?.linkedin || user?.linkedin || 'Not provided'}
-                  </Text>
+                  <Text style={[styles.blockTitle, { fontFamily: t.typography.fontFamily.bold }]}>Verification</Text>
+                  <Text style={[styles.inlineValue, { fontFamily: t.typography.fontFamily.medium }]}>{verified ? 'Verified agent' : 'Pending review'}</Text>
                 </View>
 
                 <View style={styles.infoBlock}>
-                  <Text style={[styles.blockTitle, { fontFamily: t.typography.fontFamily.bold }]}>GitHub</Text>
-                  <Text style={[styles.inlineValue, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={2}>
-                    {user?.socialNetworks?.github || user?.github || 'Not provided'}
-                  </Text>
+                  <Text style={[styles.blockTitle, { fontFamily: t.typography.fontFamily.bold }]}>Logo</Text>
+                  <Text style={[styles.inlineValue, { fontFamily: t.typography.fontFamily.medium }]}>{companyLogo ? 'Uploaded' : 'Not provided'}</Text>
                 </View>
               </View>
-            </View>
-
-            <View style={styles.skillsBlock}>
-              <View style={styles.sectionHeader}>
-                <Text style={[styles.sectionTitle, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>Skills</Text>
-                <View style={styles.sectionChip}>
-                  <Feather name="zap" size={12} color="#1768B8" />
-                  <Text style={[styles.sectionChipText, { fontFamily: t.typography.fontFamily.bold }]}>{categories.length || 0} listed</Text>
-                </View>
-              </View>
-              {categories.length ? (
-                <View style={styles.tagsRow}>
-                  {categories.map((cat, index) => (
-                    <Animated.View
-                      key={cat}
-                      style={{
-                        opacity: sectionsEntrance,
-                        transform: [
-                          {
-                            translateY: sectionsEntrance.interpolate({
-                              inputRange: [0, 1],
-                              outputRange: [12 + index * 2, 0],
-                            }),
-                          },
-                        ],
-                      }}
-                    >
-                      <LinearGradient colors={['#EAF4FF', '#F7FBFF']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.tag}>
-                        <Text style={[styles.tagText, { fontFamily: t.typography.fontFamily.bold }]}>{cat}</Text>
-                      </LinearGradient>
-                    </Animated.View>
-                  ))}
-                </View>
-              ) : (
-                <Text style={[styles.blockBody, { fontFamily: t.typography.fontFamily.medium }]}>Not provided</Text>
-              )}
             </View>
 
             <Pressable style={({ pressed }) => [styles.logoutButton, (pressed || loggingOut) && styles.pressed]} onPress={onLogout}>
               <LinearGradient colors={['#D95A67', '#E97B62']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.logoutFill}>
                 <Feather name="log-out" size={16} color="#FFFFFF" />
-                <Text style={[styles.logoutText, { fontFamily: t.typography.fontFamily.bold }]}>
-                  {loggingOut ? 'Logging out...' : 'Logout'}
-                </Text>
+                <Text style={[styles.logoutText, { fontFamily: t.typography.fontFamily.bold }]}>{loggingOut ? 'Logging out...' : 'Logout'}</Text>
               </LinearGradient>
             </Pressable>
           </Animated.View>
@@ -414,47 +353,20 @@ const styles = StyleSheet.create({
   root: { flex: 1 },
   content: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 140 },
   pressed: { opacity: 0.88 },
-  topBar: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 10,
-    marginBottom: 12,
-  },
-  backBtn: {
-    width: 42,
-    height: 42,
-    borderRadius: 15,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EEF4FF',
-    borderWidth: 1,
-    borderColor: '#D4E1F4',
-  },
+  topBar: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 12 },
+  backBtn: { width: 40, height: 40, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EEF4FF', borderWidth: 1, borderColor: '#D1DEF3' },
   topCopy: { flex: 1 },
-  pageEyebrow: {
-    fontSize: 9,
-    lineHeight: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 1.1,
-    fontWeight: '800',
-  },
-  pageTitle: {
-    marginTop: 3,
-    color: '#17326F',
-    fontSize: 20,
-    lineHeight: 24,
-    fontWeight: '900',
-  },
-  pageSub: {
-    marginTop: 4,
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: '600',
-  },
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  pageEyebrow: { fontSize: 11, lineHeight: 14, textTransform: 'uppercase', letterSpacing: 0.3, fontWeight: '700' },
+  pageTitle: { marginTop: 4, color: '#13306F', fontSize: 20, lineHeight: 24, fontWeight: '900', letterSpacing: -0.4 },
+  pageSub: { marginTop: 4, fontSize: 10, lineHeight: 14, fontWeight: '600' },
+  liveChipSolid: { flexDirection: 'row', alignItems: 'center', gap: 8, borderRadius: 999, paddingHorizontal: 12, paddingVertical: 9, backgroundColor: '#F5F8FD', borderWidth: 1, borderColor: '#D7E4F7' },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C57D' },
+  liveChipText: { color: '#194A9A', fontSize: 11, lineHeight: 14, fontWeight: '800' },
   editButtonTop: {
-    width: 42,
-    height: 42,
-    borderRadius: 15,
+    width: 40,
+    height: 40,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#1B3890',
@@ -498,12 +410,7 @@ const styles = StyleSheet.create({
     width: 86,
     backgroundColor: 'rgba(255,255,255,0.36)',
   },
-  heroHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-  },
+  heroHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12 },
   heroPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -534,31 +441,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D7E2F4',
   },
-  heroSignalDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#1FCA7B',
-  },
-  heroSignalText: {
-    color: '#11856E',
-    fontSize: 9,
-    lineHeight: 11,
-    fontWeight: '800',
-  },
-  heroMain: {
-    marginTop: 16,
-    gap: 14,
-  },
-  heroMainCompact: {
-    gap: 12,
-  },
-  heroIdentity: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 14,
-    position: 'relative',
-  },
+  heroSignalDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#1FCA7B' },
+  heroSignalText: { color: '#11856E', fontSize: 9, lineHeight: 11, fontWeight: '800' },
+  heroMain: { marginTop: 16, gap: 14 },
+  heroMainCompact: { gap: 12 },
+  heroIdentity: { flexDirection: 'row', alignItems: 'center', gap: 14, position: 'relative' },
   avatarHalo: {
     position: 'absolute',
     left: 4,
@@ -579,27 +466,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   avatarImage: { width: '100%', height: '100%' },
-  avatarFallback: {
-    width: '100%',
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#EAF2FF',
-  },
+  avatarFallback: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center', backgroundColor: '#EAF2FF' },
   identityCopy: { flex: 1 },
-  name: {
-    color: '#17326F',
-    fontSize: 18,
-    lineHeight: 22,
-    fontWeight: '900',
-  },
-  roleText: {
-    marginTop: 4,
-    color: '#5E7397',
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '600',
-  },
+  name: { color: '#17326F', fontSize: 18, lineHeight: 22, fontWeight: '900' },
+  roleText: { marginTop: 4, color: '#5E7397', fontSize: 10, lineHeight: 13, fontWeight: '600' },
   joinedPill: {
     marginTop: 8,
     alignSelf: 'flex-start',
@@ -613,16 +483,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D8E6F8',
   },
-  joinedText: {
-    color: '#6880A6',
-    fontSize: 9,
-    lineHeight: 11,
-    fontWeight: '700',
-  },
-  metricRail: {
-    flexDirection: 'row',
-    gap: 8,
-  },
+  joinedText: { color: '#6880A6', fontSize: 9, lineHeight: 11, fontWeight: '700' },
+  metricRail: { flexDirection: 'row', gap: 8 },
   metricCard: {
     flex: 1,
     minHeight: 68,
@@ -634,26 +496,9 @@ const styles = StyleSheet.create({
     borderColor: '#D7E2F4',
     justifyContent: 'center',
   },
-  metricIcon: {
-    width: 22,
-    height: 22,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  metricValue: {
-    fontSize: 15,
-    lineHeight: 17,
-    fontWeight: '900',
-  },
-  metricLabel: {
-    marginTop: 4,
-    color: '#667C98',
-    fontSize: 9,
-    lineHeight: 11,
-    fontWeight: '600',
-  },
+  metricIcon: { width: 22, height: 22, borderRadius: 8, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
+  metricValue: { fontSize: 15, lineHeight: 17, fontWeight: '900' },
+  metricLabel: { marginTop: 4, color: '#667C98', fontSize: 9, lineHeight: 11, fontWeight: '600' },
   sectionCard: {
     borderRadius: 24,
     borderWidth: 1,
@@ -661,18 +506,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(249,251,254,0.95)',
     padding: 14,
   },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 12,
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 15,
-    lineHeight: 18,
-    fontWeight: '900',
-  },
+  sectionHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 12 },
+  sectionTitle: { fontSize: 15, lineHeight: 18, fontWeight: '900' },
   sectionChip: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -684,15 +519,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#D8E6F8',
   },
-  sectionChipText: {
-    color: '#1768B8',
-    fontSize: 9,
-    lineHeight: 11,
-    fontWeight: '800',
-  },
-  detailGrid: {
-    gap: 8,
-  },
+  sectionChipText: { color: '#1768B8', fontSize: 9, lineHeight: 11, fontWeight: '800' },
+  detailGrid: { gap: 8 },
   detailCard: {
     borderRadius: 18,
     paddingHorizontal: 12,
@@ -702,22 +530,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  detailCardBlue: {
-    backgroundColor: '#EEF5FF',
-    borderColor: '#D8E6F8',
-  },
-  detailCardLavender: {
-    backgroundColor: '#F4EEFF',
-    borderColor: '#E4D7FA',
-  },
-  detailCardMint: {
-    backgroundColor: '#EAF9F6',
-    borderColor: '#D2EEE7',
-  },
-  detailCardGold: {
-    backgroundColor: '#FFF5E7',
-    borderColor: '#F5E1BF',
-  },
+  detailCardBlue: { backgroundColor: '#EEF5FF', borderColor: '#D8E6F8' },
+  detailCardLavender: { backgroundColor: '#F4EEFF', borderColor: '#E4D7FA' },
+  detailCardMint: { backgroundColor: '#EAF9F6', borderColor: '#D2EEE7' },
+  detailCardGold: { backgroundColor: '#FFF5E7', borderColor: '#F5E1BF' },
   detailIconWrap: {
     width: 38,
     height: 38,
@@ -727,28 +543,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.55)',
   },
   detailCopy: { flex: 1 },
-  detailLabel: {
-    color: '#687C98',
-    fontSize: 9,
-    lineHeight: 11,
-    fontWeight: '600',
-  },
-  detailValue: {
-    marginTop: 3,
-    color: '#1A2F62',
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: '800',
-  },
-  editorialRow: {
-    marginTop: 12,
-    flexDirection: 'row',
-    gap: 10,
-  },
-  infoColumn: {
-    flex: 1,
-    gap: 10,
-  },
+  detailLabel: { color: '#687C98', fontSize: 9, lineHeight: 11, fontWeight: '600' },
+  detailValue: { marginTop: 3, color: '#1A2F62', fontSize: 12, lineHeight: 16, fontWeight: '800' },
+  editorialRow: { marginTop: 12, flexDirection: 'row', gap: 10 },
+  infoColumn: { flex: 1, gap: 10 },
   infoBlock: {
     borderRadius: 22,
     borderWidth: 1,
@@ -756,57 +554,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(249,251,254,0.95)',
     padding: 14,
   },
-  infoBlockWide: {
-    flex: 1.1,
-  },
-  blockTitle: {
-    color: '#17326F',
-    fontSize: 13,
-    lineHeight: 17,
-    fontWeight: '900',
-  },
-  blockBody: {
-    marginTop: 6,
-    color: '#536986',
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: '600',
-  },
-  inlineValue: {
-    marginTop: 6,
-    color: '#536986',
-    fontSize: 10,
-    lineHeight: 14,
-    fontWeight: '600',
-  },
-  skillsBlock: {
-    marginTop: 12,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: '#D8E3F4',
-    backgroundColor: 'rgba(249,251,254,0.95)',
-    padding: 14,
-  },
-  tagsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  tag: {
-    minHeight: 30,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: '#D8E6F8',
-    paddingHorizontal: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  tagText: {
-    color: '#1D4FAE',
-    fontSize: 10,
-    lineHeight: 13,
-    fontWeight: '800',
-  },
+  infoBlockWide: { flex: 1.1 },
+  blockTitle: { color: '#17326F', fontSize: 13, lineHeight: 17, fontWeight: '900' },
+  blockBody: { marginTop: 6, color: '#536986', fontSize: 10, lineHeight: 14, fontWeight: '600' },
+  inlineValue: { marginTop: 6, color: '#536986', fontSize: 10, lineHeight: 14, fontWeight: '600' },
   logoutButton: {
     marginTop: 12,
     borderRadius: 18,
@@ -819,18 +570,6 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     elevation: 4,
   },
-  logoutFill: {
-    minHeight: 48,
-    borderRadius: 18,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  logoutText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    lineHeight: 15,
-    fontWeight: '800',
-  },
+  logoutFill: { minHeight: 48, borderRadius: 18, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  logoutText: { color: '#FFFFFF', fontSize: 12, lineHeight: 15, fontWeight: '800' },
 });

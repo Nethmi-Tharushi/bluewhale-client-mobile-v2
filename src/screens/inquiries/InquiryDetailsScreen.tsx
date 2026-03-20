@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import ManagedViewBanner from '../../components/managed/ManagedViewBanner';
 import { Badge, EmptyState, Screen } from '../../components/ui';
 import { Spacing } from '../../constants/theme';
 import { InquiriesService } from '../../api/services';
@@ -10,6 +11,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InquiryStackParamList } from '../../navigation/app/AppNavigator';
 import { formatDate } from '../../utils/format';
 import { useTheme } from '../../theme/ThemeProvider';
+import { useAuthStore } from '../../context/authStore';
+import { getManagedCandidateId, getManagedCandidateName, isManagedViewActive, stripManagedViewState } from '../../utils/managedView';
 
 type Props = NativeStackScreenProps<InquiryStackParamList, 'InquiryDetails'>;
 
@@ -27,13 +30,42 @@ const statusTone = (status?: string) => {
   return { bg: '#EEF4FF', border: '#D5E0F5', text: '#1D5FD2' };
 };
 
+const hasInquiryReply = (item: Inquiry | null) => {
+  const response = (item as any)?.response;
+  if (response && typeof response === 'object' && String(response?.message || '').trim()) return true;
+  const replies = Array.isArray((item as any)?.replies) ? (item as any).replies : [];
+  return replies.some((reply: any) => String(reply?.message || '').trim());
+};
+
+const getInquiryStatusBucket = (item: Inquiry | null) => {
+  const status = String(item?.status || '').trim().toLowerCase();
+  if (status.includes('respond') || status.includes('close') || status.includes('resolved') || hasInquiryReply(item)) return 'Responded';
+  return 'Pending';
+};
+
+const getManagedCandidateIdFromInquiry = (item: Inquiry | null) =>
+  String(
+    (item as any)?.managedCandidate?.candidateId?._id ||
+      (item as any)?.managedCandidate?.candidateId?.id ||
+      (item as any)?.managedCandidate?.candidateId ||
+      (item as any)?.managedCandidateId ||
+      (item as any)?.candidateId ||
+      ''
+  ).trim();
+
 export default function InquiryDetailsScreen({ navigation, route }: Props) {
   const t = useTheme();
   const { width } = useWindowDimensions();
   const compact = width < 390;
   const { inquiryId } = route.params;
+  const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
+  const signIn = useAuthStore((s) => s.signIn);
   const [item, setItem] = useState<Inquiry | null>(null);
   const [loading, setLoading] = useState(true);
+  const managedViewActive = useMemo(() => isManagedViewActive(user), [user]);
+  const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
+  const managedCandidateName = useMemo(() => getManagedCandidateName(user), [user]);
 
   const heroEntrance = useRef(new Animated.Value(0)).current;
   const sectionsEntrance = useRef(new Animated.Value(0)).current;
@@ -47,7 +79,13 @@ export default function InquiryDetailsScreen({ navigation, route }: Props) {
       try {
         const res = await InquiriesService.listMine();
         const list = Array.isArray(res) ? res : (res as any)?.inquiries || [];
-        const found = list.find((x: any) => x._id === inquiryId);
+        const visible = managedViewActive && managedCandidateId
+          ? list.filter((entry: any) => {
+              const candidateType = String(entry?.candidateType || '').trim().toUpperCase();
+              return candidateType === 'B2B' && getManagedCandidateIdFromInquiry(entry) === managedCandidateId;
+            })
+          : list;
+        const found = visible.find((x: any) => x._id === inquiryId);
         setItem(found || null);
       } catch {
         setItem(null);
@@ -55,7 +93,7 @@ export default function InquiryDetailsScreen({ navigation, route }: Props) {
         setLoading(false);
       }
     })();
-  }, [inquiryId]);
+  }, [inquiryId, managedCandidateId, managedViewActive]);
 
   useEffect(() => {
     Animated.parallel([
@@ -122,7 +160,26 @@ export default function InquiryDetailsScreen({ navigation, route }: Props) {
     return list;
   }, [item]);
 
-  const tone = statusTone(item?.status || (loading ? 'Loading' : 'Open'));
+  const exitManagedView = useCallback(async () => {
+    if (!token || !user) return;
+    await signIn({ token, user: stripManagedViewState(user) });
+    navigation.getParent()?.navigate('Candidates' as never);
+  }, [navigation, signIn, token, user]);
+
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    if (navigation.getParent()?.canGoBack()) {
+      navigation.getParent()?.goBack();
+      return;
+    }
+    navigation.getParent()?.navigate('Overview' as never);
+  }, [navigation]);
+
+  const statusLabel = getInquiryStatusBucket(item);
+  const tone = statusTone(statusLabel || (loading ? 'Loading' : 'Open'));
   const heroY = heroEntrance.interpolate({ inputRange: [0, 1], outputRange: [24, 0] });
   const sectionY = sectionsEntrance.interpolate({ inputRange: [0, 1], outputRange: [26, 0] });
   const pulseScale = pulse.interpolate({ inputRange: [0, 1], outputRange: [1, 1.08] });
@@ -141,11 +198,17 @@ export default function InquiryDetailsScreen({ navigation, route }: Props) {
   return (
     <Screen padded={false}>
       <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        {managedViewActive ? (
+          <ManagedViewBanner
+            candidateName={managedCandidateName}
+            subtitle="Inquiry details are scoped to the active managed candidate"
+            onExit={exitManagedView}
+          />
+        ) : null}
         <Animated.View style={[styles.headerRow, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
           <Pressable
-            onPress={() => navigation.canGoBack() && navigation.goBack()}
-            style={({ pressed }) => [styles.backBtn, !navigation.canGoBack() && styles.backBtnHidden, pressed && styles.pressed]}
-            disabled={!navigation.canGoBack()}
+            onPress={handleBack}
+            style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
           >
             <Feather name="arrow-left" size={18} color="#1B3890" />
           </Pressable>
@@ -156,7 +219,7 @@ export default function InquiryDetailsScreen({ navigation, route }: Props) {
           </View>
           <View style={[styles.headerStatusChip, { backgroundColor: tone.bg, borderColor: tone.border }]}>
             <Animated.View style={[styles.headerStatusDot, { backgroundColor: tone.text, opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
-            <Text style={[styles.headerStatusText, { color: tone.text, fontFamily: t.typography.fontFamily.bold }]}>{item?.status || (loading ? 'Loading...' : 'Open')}</Text>
+            <Text style={[styles.headerStatusText, { color: tone.text, fontFamily: t.typography.fontFamily.bold }]}>{statusLabel || (loading ? 'Loading...' : 'Pending')}</Text>
           </View>
         </Animated.View>
 
@@ -214,10 +277,10 @@ export default function InquiryDetailsScreen({ navigation, route }: Props) {
         <Animated.View style={{ opacity: sectionsEntrance, transform: [{ translateY: sectionY }] }}>
           <View style={styles.sectionCard}>
             <View style={styles.sectionHeader}>
-              <View>
-                <Text style={[styles.sectionEyebrow, { fontFamily: t.typography.fontFamily.bold }]}>ORIGINAL MESSAGE</Text>
-                <Text style={[styles.sectionTitle, { fontFamily: t.typography.fontFamily.bold }]}>Your Inquiry</Text>
-              </View>
+            <View>
+              <Text style={[styles.sectionEyebrow, { fontFamily: t.typography.fontFamily.bold }]}>ORIGINAL MESSAGE</Text>
+              <Text style={[styles.sectionTitle, { fontFamily: t.typography.fontFamily.bold }]}>Your Inquiry</Text>
+            </View>
               <View style={styles.sectionMetaChip}>
                 <Feather name="calendar" size={12} color="#1D5FD2" />
                 <Text style={[styles.sectionMetaText, { fontFamily: t.typography.fontFamily.bold }]}>{formatDate(item?.createdAt) || '-'}</Text>
@@ -233,6 +296,46 @@ export default function InquiryDetailsScreen({ navigation, route }: Props) {
                 <Text style={[styles.messageBody, { fontFamily: t.typography.fontFamily.medium }]}>{item?.message || ''}</Text>
               </View>
             </View>
+          </View>
+
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Text style={[styles.sectionEyebrow, { fontFamily: t.typography.fontFamily.bold }]}>TICKET SUMMARY</Text>
+                <Text style={[styles.sectionTitle, { fontFamily: t.typography.fontFamily.bold }]}>Reference</Text>
+              </View>
+              <View style={[styles.sectionMetaChip, { backgroundColor: tone.bg, borderColor: tone.border }]}>
+                <Feather name="tag" size={12} color={tone.text} />
+                <Text style={[styles.sectionMetaText, { color: tone.text, fontFamily: t.typography.fontFamily.bold }]}>{statusLabel}</Text>
+              </View>
+            </View>
+
+            <View style={styles.summaryGrid}>
+              <View style={styles.summaryCard}>
+                <Text style={[styles.summaryLabel, { fontFamily: t.typography.fontFamily.bold }]}>Email</Text>
+                <Text style={[styles.summaryValue, { fontFamily: t.typography.fontFamily.medium }]}>{(item as any)?.email || '-'}</Text>
+              </View>
+              <View style={styles.summaryCard}>
+                <Text style={[styles.summaryLabel, { fontFamily: t.typography.fontFamily.bold }]}>Submitted</Text>
+                <Text style={[styles.summaryValue, { fontFamily: t.typography.fontFamily.medium }]}>{formatDate(item?.createdAt) || '-'}</Text>
+              </View>
+            </View>
+
+            {(item as any)?.job ? (
+              <View style={styles.jobSummaryCard}>
+                <View style={styles.jobSummaryIcon}>
+                  <Feather name="briefcase" size={15} color="#1D5FD2" />
+                </View>
+                <View style={styles.jobSummaryCopy}>
+                  <Text style={[styles.jobSummaryTitle, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
+                    {String((item as any)?.job?.title || 'Job reference')}
+                  </Text>
+                  <Text style={[styles.jobSummaryMeta, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>
+                    {String((item as any)?.job?.company || '').trim() || 'Company'}
+                  </Text>
+                </View>
+              </View>
+            ) : null}
           </View>
 
           <View style={styles.sectionCard}>
@@ -489,6 +592,15 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   sectionMetaText: { color: '#1D5FD2', fontSize: 9, lineHeight: 11, fontWeight: '800' },
+  summaryGrid: { flexDirection: 'row', gap: 10, marginBottom: 12 },
+  summaryCard: { flex: 1, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: '#F7FAFF', borderWidth: 1, borderColor: '#DDE7F6' },
+  summaryLabel: { color: '#1D5FD2', fontSize: 10, lineHeight: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 },
+  summaryValue: { marginTop: 6, color: '#4B6188', fontSize: 12, lineHeight: 16, fontWeight: '600' },
+  jobSummaryCard: { borderRadius: 18, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: '#F7FAFF', borderWidth: 1, borderColor: '#DDE7F6', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  jobSummaryIcon: { width: 34, height: 34, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EAF2FF' },
+  jobSummaryCopy: { flex: 1 },
+  jobSummaryTitle: { color: '#163171', fontSize: 13, lineHeight: 16, fontWeight: '800' },
+  jobSummaryMeta: { marginTop: 3, color: '#6B7EA5', fontSize: 11, lineHeight: 14, fontWeight: '600' },
   messageCard: {
     borderRadius: 16,
     borderWidth: 1,
@@ -548,3 +660,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
+

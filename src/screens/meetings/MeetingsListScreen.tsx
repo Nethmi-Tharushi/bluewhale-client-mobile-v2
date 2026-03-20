@@ -1,14 +1,17 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, FlatList, Linking, Pressable, RefreshControl, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { MeetingsService } from '../../api/services';
+import { MeetingsService, TasksService } from '../../api/services';
+import ManagedViewBanner from '../../components/managed/ManagedViewBanner';
 import { EmptyState, Screen, Skeleton } from '../../components/ui';
 import { useAuthStore } from '../../context/authStore';
 import type { Meeting } from '../../types/models';
+import { getMeetingContactName, getMeetingDisplayDate, getMeetingDisplayTime, mergeMeetingsWithTaskMeetings } from '../../utils/meetingTasks';
 import type { MeetingsStackParamList } from '../../navigation/app/AppNavigator';
 import { useTheme } from '../../theme/ThemeProvider';
+import { getManagedCandidateName, isManagedViewActive, stripManagedViewState } from '../../utils/managedView';
 
 type Props = NativeStackScreenProps<MeetingsStackParamList, 'MeetingsList'>;
 
@@ -46,12 +49,16 @@ export default function MeetingsListScreen({ navigation }: Props) {
   const { width } = useWindowDimensions();
   const compact = width < 390;
   const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
+  const signIn = useAuthStore((s) => s.signIn);
   const [meetings, setMeetings] = useState<Meeting[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
+  const managedViewActive = useMemo(() => isManagedViewActive(user), [user]);
+  const managedCandidateName = useMemo(() => getManagedCandidateName(user), [user]);
   const heroEntrance = useRef(new Animated.Value(0)).current;
   const listEntrance = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
@@ -62,8 +69,19 @@ export default function MeetingsListScreen({ navigation }: Props) {
     if (!opts?.silent) setLoading(true);
     setErrorMessage(null);
     try {
-      const list = await MeetingsService.list(managedCandidateId ? { managedCandidateId } : undefined);
-      setMeetings(Array.isArray(list) ? list : []);
+      const [meetingsRes, tasksRes] = await Promise.allSettled([
+        MeetingsService.list(managedCandidateId ? { managedCandidateId } : undefined),
+        TasksService.list(managedCandidateId ? { managedCandidateId } : undefined),
+      ]);
+      const meetingsList = meetingsRes.status === 'fulfilled' && Array.isArray(meetingsRes.value) ? meetingsRes.value : [];
+      const tasksList = tasksRes.status === 'fulfilled' && Array.isArray(tasksRes.value) ? tasksRes.value : [];
+      const mergedMeetings = mergeMeetingsWithTaskMeetings(meetingsList, tasksList);
+      setMeetings(mergedMeetings);
+
+      if (meetingsRes.status === 'rejected' && tasksRes.status === 'rejected') {
+        const msg = String((meetingsRes.reason as any)?.userMessage || (meetingsRes.reason as any)?.message || 'Unable to load meetings');
+        setErrorMessage(msg);
+      }
     } catch (err: any) {
       const msg = String(err?.userMessage || err?.message || 'Unable to load meetings');
       setErrorMessage(msg);
@@ -119,6 +137,24 @@ export default function MeetingsListScreen({ navigation }: Props) {
     loops.forEach((loop) => loop.start());
     return () => loops.forEach((loop) => loop.stop());
   }, [drift, heroEntrance, listEntrance, pulse, sweep]);
+
+  const exitManagedView = useCallback(async () => {
+    if (!token || !user) return;
+    await signIn({ token, user: stripManagedViewState(user) });
+    navigation.getParent()?.navigate('Candidates' as never);
+  }, [navigation, signIn, token, user]);
+
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    if (navigation.getParent()?.canGoBack()) {
+      navigation.getParent()?.goBack();
+      return;
+    }
+    navigation.getParent()?.navigate('Overview' as never);
+  }, [navigation]);
 
   const stats = useMemo(() => {
     const scheduled = meetings.filter((meeting) => String(meeting?.status || '').toLowerCase() === 'scheduled').length;
@@ -181,8 +217,15 @@ export default function MeetingsListScreen({ navigation }: Props) {
         }
         ListHeaderComponent={
           <View style={styles.headerWrap}>
+            {managedViewActive ? (
+              <ManagedViewBanner
+                candidateName={managedCandidateName}
+                subtitle="Meetings are loaded for the active managed candidate"
+                onExit={exitManagedView}
+              />
+            ) : null}
             <Animated.View style={[styles.headerRow, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
-              <Pressable onPress={() => navigation.canGoBack() && navigation.goBack()} style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}>
+              <Pressable onPress={handleBack} style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}>
                 <Feather name="arrow-left" size={18} color="#1B3890" />
               </Pressable>
               <View style={styles.headerTextWrap}>
@@ -337,6 +380,10 @@ export default function MeetingsListScreen({ navigation }: Props) {
         renderItem={({ item, index }) => {
           const tone = toneForStatus(item?.status);
           const cardY = listEntrance.interpolate({ inputRange: [0, 1], outputRange: [20 + Math.min(index, 4) * 8, 0] });
+          const contactName = getMeetingContactName(item);
+          const subtitle = [contactName, item?.locationType].filter(Boolean).join(' • ') || 'Meeting';
+          const meetingDate = getMeetingDisplayDate(item);
+          const meetingTime = getMeetingDisplayTime(item);
 
           return (
             <Animated.View style={{ opacity: listEntrance, transform: [{ translateY: cardY }] }}>
@@ -355,7 +402,7 @@ export default function MeetingsListScreen({ navigation }: Props) {
                     <Text style={[styles.cardTitle, { color: '#142E76', fontFamily: t.typography.fontFamily.bold }]} numberOfLines={2}>
                       {item?.title || 'Meeting'}
                     </Text>
-                    <Text style={[styles.cardType, { fontFamily: t.typography.fontFamily.medium }]}>{item?.locationType || 'Meeting'}</Text>
+                    <Text style={[styles.cardType, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>{subtitle}</Text>
                   </View>
                   <View style={[styles.statusPill, { backgroundColor: tone.bg }]}>
                     <Text style={[styles.statusText, { color: tone.text, fontFamily: t.typography.fontFamily.bold }]}>{item?.status || 'Scheduled'}</Text>
@@ -383,13 +430,13 @@ export default function MeetingsListScreen({ navigation }: Props) {
                   <View style={[styles.metaBox, styles.metaBoxBlue]}>
                     <Feather name="calendar" size={14} color="#1D5FD2" />
                     <Text style={[styles.metaText, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>
-                      {item?.date || 'N/A'}
+                      {meetingDate}
                     </Text>
                   </View>
                   <View style={[styles.metaBox, styles.metaBoxLavender]}>
                     <Feather name="clock" size={14} color="#7A3ED4" />
                     <Text style={[styles.metaText, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>
-                      {item?.time || 'N/A'}
+                      {meetingTime}
                     </Text>
                   </View>
                 </View>
@@ -1024,3 +1071,5 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 });
+
+

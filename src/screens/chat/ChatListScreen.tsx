@@ -48,8 +48,13 @@ export default function ChatListScreen({ navigation }: Props) {
   const load = async () => {
     setLoading(true);
     try {
-      const res = await ChatService.listAdmins();
-      setItems(Array.isArray(res) ? res : (res as any)?.admins || []);
+      const assigned = await ChatService.assignedAdmin();
+      if (assigned) {
+        setItems([assigned]);
+        return;
+      }
+      const admins = await ChatService.listAdmins();
+      setItems(admins.length ? admins.slice(0, 1) : []);
     } catch {
       setItems([]);
     } finally {
@@ -118,6 +123,10 @@ export default function ChatListScreen({ navigation }: Props) {
   const handleBack = () => {
     if (navigation.canGoBack()) {
       navigation.goBack();
+      return;
+    }
+    if (navigation.getParent()?.canGoBack()) {
+      navigation.getParent()?.goBack();
       return;
     }
     navigation.getParent()?.navigate('Home' as never);
@@ -332,7 +341,7 @@ const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#EEF3FB' },
   list: { flex: 1 },
   listContent: { paddingHorizontal: 16, paddingBottom: 130 },
-  headerWrap: { marginTop: 22, marginBottom: 8 },
+  headerWrap: { marginTop: 12, marginBottom: 8 },
   pressed: { opacity: 0.9 },
   topBar: {
     flexDirection: 'row',
@@ -348,29 +357,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: '#EEF4FF',
     borderWidth: 1,
-    borderColor: '#D2DFF5',
+    borderColor: '#D1DEF3',
   },
   headerTextWrap: { flex: 1 },
   topEyebrow: {
     color: '#6A7F99',
-    fontSize: 10,
-    lineHeight: 12,
+    fontSize: 11,
+    lineHeight: 14,
     textTransform: 'uppercase',
-    letterSpacing: 1.1,
-    fontWeight: '800',
+    letterSpacing: 0.3,
+    fontWeight: '700',
   },
   heading: {
-    marginTop: 3,
-    color: '#1A347F',
-    fontSize: 22,
-    lineHeight: 26,
+    marginTop: 4,
+    color: '#13306F',
+    fontSize: 20,
+    lineHeight: 24,
     fontWeight: '900',
+    letterSpacing: -0.4,
   },
   sub: {
-    marginTop: 2,
+    marginTop: 4,
     color: '#526886',
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 10,
+    lineHeight: 14,
     fontWeight: '600',
   },
   liveChip: {
@@ -380,9 +390,9 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     paddingHorizontal: 12,
     paddingVertical: 9,
-    backgroundColor: '#F8FBFF',
+    backgroundColor: '#F5F8FD',
     borderWidth: 1,
-    borderColor: '#D4E1F4',
+    borderColor: '#D7E4F7',
   },
   liveDot: {
     width: 8,
@@ -872,3 +882,5 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 });
+
+

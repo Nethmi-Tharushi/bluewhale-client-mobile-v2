@@ -7,12 +7,19 @@ const RENDER_FALLBACK_ORIGIN = 'https://bluewhale-backend.onrender.com';
 
 const stripTrailingSlash = (v: string) => v.replace(/\/+$/, '');
 const toOrigin = (v: string) => stripTrailingSlash(v).replace(/\/api$/i, '');
+const deriveExpoHostOrigin = () => {
+  const hostUri = Constants.expoConfig?.hostUri || Constants.manifest2?.extra?.expoClient?.hostUri || '';
+  const host = hostUri.split(':')[0]?.trim();
+  if (!host) return '';
+  return `http://${host}:${API_PORT}`;
+};
 
 const rawEnvUrl = process.env.EXPO_PUBLIC_API_URL?.trim() || '';
 const envOrigin = rawEnvUrl ? toOrigin(rawEnvUrl) : '';
 const androidEmulatorOrigin = `http://10.0.2.2:${API_PORT}`;
 const iosSimulatorOrigin = `http://localhost:${API_PORT}`;
 const physicalFallbackOrigin = `http://${DEFAULT_LAN_IP}:${API_PORT}`;
+const expoHostOrigin = deriveExpoHostOrigin();
 
 const resolvedOrigin = (() => {
   // Always honor explicit env override first.
@@ -21,12 +28,15 @@ const resolvedOrigin = (() => {
   // Production APK/IPA should never default to LAN or emulator hosts.
   if (!__DEV__) return RENDER_FALLBACK_ORIGIN;
 
+  // Expo Go should prefer the dev server host so physical devices do not hit localhost.
+  if (Constants.executionEnvironment === 'storeClient' && expoHostOrigin) return expoHostOrigin;
+
   // Emulator/simulator defaults when no env is provided.
   if (Platform.OS === 'android') return androidEmulatorOrigin;
   if (Platform.OS === 'ios') return iosSimulatorOrigin;
 
   // Expo Go on physical device local-network fallback.
-  if (Constants.appOwnership === 'expo') return physicalFallbackOrigin;
+  if (Constants.executionEnvironment === 'storeClient') return physicalFallbackOrigin;
 
   return RENDER_FALLBACK_ORIGIN;
 })();
@@ -50,6 +60,7 @@ export const API_BASE_URL_CANDIDATES = !__DEV__
       new Set(
         [
           API_BASE_URL,
+          expoHostOrigin ? `${expoHostOrigin}/api` : '',
           `${androidEmulatorOrigin}/api`,
           `${iosSimulatorOrigin}/api`,
           `${physicalFallbackOrigin}/api`,
@@ -61,6 +72,7 @@ export const API_BASE_URL_CANDIDATES = !__DEV__
 
 if (__DEV__) {
   console.log('[API Config] EXPO_PUBLIC_API_URL:', rawEnvUrl || '(not set)');
+  console.log('[API Config] Expo host origin:', expoHostOrigin || '(not available)');
   console.log('[API Config] API_BASE_URL:', API_BASE_URL);
   console.log('[API Config] SOCKET_URL:', SOCKET_URL);
 }

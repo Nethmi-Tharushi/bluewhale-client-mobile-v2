@@ -10,6 +10,9 @@ import JobsListScreen from '../../screens/jobs/JobsListScreen';
 import JobDetailsScreen from '../../screens/jobs/JobDetailsScreen';
 import ApplyJobScreen from '../../screens/jobs/ApplyJobScreen';
 import MyApplicationsScreen from '../../screens/applications/MyApplicationsScreen';
+import AgentOverviewScreen from '../../screens/applications/AgentOverviewScreen';
+import AnalyticsScreen from '../../screens/analytics/AnalyticsScreen';
+import ManagedCandidateAnalyticsScreen from '../../screens/managed/ManagedCandidateAnalyticsScreen';
 import InvoicesListScreen from '../../screens/invoices/InvoicesListScreen';
 import InvoiceDetailsScreen from '../../screens/invoices/InvoiceDetailsScreen';
 import PaymentScreen from '../../screens/payments/PaymentScreen';
@@ -23,9 +26,14 @@ import TaskDetailsScreen from '../../screens/tasks/TaskDetailsScreen';
 import MeetingsListScreen from '../../screens/meetings/MeetingsListScreen';
 import MeetingDetailsScreen from '../../screens/meetings/MeetingDetailsScreen';
 import DocumentsScreen from '../../screens/documents/DocumentsScreen';
+import ManagedCandidatesScreen from '../../screens/agent/ManagedCandidatesScreen';
 import ProfileScreen from '../../screens/profile/ProfileScreen';
 import EditProfileScreen from '../../screens/profile/EditProfileScreen';
+import ManagedCandidateChatScreen from '../../screens/managed/ManagedCandidateChatScreen';
+import ManagedCandidateProfileScreen from '../../screens/managed/ManagedCandidateProfileScreen';
 import type { Invoice, Meeting, Task } from '../../types/models';
+import { useAuthStore } from '../../context/authStore';
+import { isManagedViewActive } from '../../utils/managedView';
 
 export type JobsStackParamList = {
   JobsList: undefined;
@@ -99,6 +107,8 @@ function JobsNavigator() {
 
 function ChatNavigator() {
   const t = useTheme();
+  const user = useAuthStore((s) => s.user);
+  const managedViewActive = isManagedViewActive(user);
   return (
     <ChatStack.Navigator
       screenOptions={{
@@ -108,7 +118,7 @@ function ChatNavigator() {
         headerTitleStyle: { fontWeight: '800' },
       }}
     >
-      <ChatStack.Screen name="ChatList" component={ChatListScreen} options={{ title: 'Chat' }} />
+      <ChatStack.Screen name="ChatList" component={managedViewActive ? (ManagedCandidateChatScreen as any) : ChatListScreen} options={{ title: 'Chat' }} />
       <ChatStack.Screen name="ChatRoom" component={ChatRoomScreen} options={({ route }) => ({ title: route.params.title || 'Chat' })} />
     </ChatStack.Navigator>
   );
@@ -202,6 +212,8 @@ function DocumentsNavigator() {
 
 function ProfileNavigator() {
   const t = useTheme();
+  const user = useAuthStore((s) => s.user);
+  const managedViewActive = isManagedViewActive(user);
   return (
     <ProfileStack.Navigator
       screenOptions={{
@@ -211,7 +223,7 @@ function ProfileNavigator() {
         headerTitleStyle: { fontWeight: '800' },
       }}
     >
-      <ProfileStack.Screen name="ProfileHome" component={ProfileScreen} options={{ title: 'Profile' }} />
+      <ProfileStack.Screen name="ProfileHome" component={managedViewActive ? (ManagedCandidateProfileScreen as any) : ProfileScreen} options={{ title: 'Profile' }} />
       <ProfileStack.Screen name="EditProfile" component={EditProfileScreen} options={{ title: 'Edit Profile' }} />
     </ProfileStack.Navigator>
   );
@@ -242,8 +254,11 @@ function TabIcon({
 
 export default function AppNavigator() {
   const t = useTheme();
+  const user = useAuthStore((s) => s.user);
+  const managedViewActive = isManagedViewActive(user);
   return (
     <Tab.Navigator
+      backBehavior="history"
       screenOptions={{
         headerShown: false,
         tabBarShowLabel: true,
@@ -263,18 +278,33 @@ export default function AppNavigator() {
         }}
       />
       <Tab.Screen
-        name="Jobs"
-        component={MyApplicationsScreen}
+        name="Overview"
+        component={AgentOverviewScreen}
         options={{
-          tabBarLabel: 'Jobs',
-          tabBarIcon: ({ focused }) => <TabIcon focused={focused} active="briefcase" inactive="briefcase" />,
+          tabBarLabel: 'Overview',
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} active="activity" inactive="activity" />,
         }}
       />
       <Tab.Screen
-        name="Bills"
-        component={InvoicesNavigator}
+        name="Applications"
+        component={MyApplicationsScreen}
         options={{
-          tabBarIcon: ({ focused }) => <TabIcon focused={focused} active="file-text" inactive="file-text" />,
+          tabBarButton: () => null,
+        }}
+      />
+      <Tab.Screen
+        name="Candidates"
+        component={ManagedCandidatesScreen}
+        options={{
+          tabBarButton: () => null,
+        }}
+      />
+      <Tab.Screen
+        name="Analytics"
+        component={managedViewActive ? (ManagedCandidateAnalyticsScreen as any) : AnalyticsScreen}
+        options={{
+          tabBarLabel: 'Analytics',
+          tabBarIcon: ({ focused }) => <TabIcon focused={focused} active="bar-chart-2" inactive="bar-chart-2" />,
         }}
       />
       <Tab.Screen
@@ -315,6 +345,13 @@ export default function AppNavigator() {
       <Tab.Screen
         name="Documents"
         component={DocumentsNavigator}
+        options={{
+          tabBarButton: () => null,
+        }}
+      />
+      <Tab.Screen
+        name="Invoices"
+        component={InvoicesNavigator}
         options={{
           tabBarButton: () => null,
         }}
@@ -373,3 +410,4 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
 });
+

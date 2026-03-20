@@ -15,13 +15,13 @@ type FocusField = 'email' | 'password' | null;
 
 const HIGHLIGHTS = [
   { icon: 'shield' as const, label: 'Secure access' },
-  { icon: 'briefcase' as const, label: 'Track applications' },
-  { icon: 'zap' as const, label: 'Faster job flow' },
+  { icon: 'users' as const, label: 'Candidate workspace' },
+  { icon: 'bar-chart-2' as const, label: 'Agent insights' },
 ];
 
 const FLOATING_BADGES = [
   { icon: 'clock' as const, title: 'Fast access', value: '<30s' },
-  { icon: 'message-square' as const, title: 'Live updates', value: '24/7' },
+  { icon: 'message-square' as const, title: 'Admin chat', value: 'Live' },
 ];
 
 export default function LoginScreen({ navigation }: Props) {
@@ -267,8 +267,8 @@ export default function LoginScreen({ navigation }: Props) {
           : { email: email.trim() };
       if (!token) throw new Error('Token not found in response.');
       const role = String((user as any)?.userType || (user as any)?.role || '').toLowerCase();
-      if (role && role !== 'candidate') {
-        throw new Error('Only candidate accounts can log in to this app.');
+      if (role && role !== 'agent') {
+        throw new Error('Only agent accounts can log in to this app.');
       }
       await signIn({ token, user });
     } catch (e: any) {
@@ -445,7 +445,7 @@ export default function LoginScreen({ navigation }: Props) {
 
               <View style={[styles.eyebrow, { backgroundColor: t.isDark ? 'rgba(17, 29, 52, 0.86)' : 'rgba(255,255,255,0.74)', borderColor: t.colors.border }]}>
                 <Feather name="star" size={14} color={t.colors.secondary} />
-                <Text style={[styles.eyebrowText, { color: t.colors.primary }]}>Candidate portal</Text>
+                <Text style={[styles.eyebrowText, { color: t.colors.primary }]}>Agent portal</Text>
               </View>
 
               <View style={styles.visualStage}>
@@ -499,13 +499,13 @@ export default function LoginScreen({ navigation }: Props) {
                 </Animated.View>
               </View>
 
-              <Text style={[styles.title, { color: t.colors.primary }, compact && styles.titleCompact]}>Welcome back</Text>
+              <Text style={[styles.title, { color: t.colors.primary }, compact && styles.titleCompact]}>Welcome back, agent</Text>
               <Text style={[styles.subtitle, { color: t.colors.grayMutedDark }, compact && styles.subtitleCompact]}>
-                Sign in to manage jobs and stay updated.
+                Sign in to manage candidates, follow activity, and keep your workflow moving.
               </Text>
 
               <View style={[styles.securityWaveWrap, { backgroundColor: t.isDark ? 'rgba(17, 29, 52, 0.82)' : 'rgba(255,255,255,0.7)', borderColor: t.colors.border }]}>
-                <Text style={[styles.securityWaveLabel, { color: t.colors.primary }]}>Secure candidate access</Text>
+                <Text style={[styles.securityWaveLabel, { color: t.colors.primary }]}>Secure agent access</Text>
                 <View style={styles.securityBarsRow}>
                   {[0, 1, 2, 3, 4].map((index) => {
                     const scaleY = barWave.interpolate({
@@ -591,8 +591,8 @@ export default function LoginScreen({ navigation }: Props) {
                   <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>secure sign-in</Text>
                 </View>
                 <View style={[styles.metricCard, { backgroundColor: t.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.7)', borderColor: t.colors.border }]}>
-                  <Text style={[styles.metricValue, { color: t.colors.primary }]}>24/7</Text>
-                  <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>status visibility</Text>
+                  <Text style={[styles.metricValue, { color: t.colors.primary }]}>5</Text>
+                  <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>agent modules</Text>
                 </View>
               </View>
 
@@ -605,7 +605,7 @@ export default function LoginScreen({ navigation }: Props) {
                 </View>
                 <View style={styles.cardHeaderCopy}>
                   <Text style={[styles.cardTitle, { color: t.colors.text }]}>Sign in securely</Text>
-                  <Text style={[styles.cardSubtitle, { color: t.colors.grayMutedDark }]}>Use your candidate login to continue.</Text>
+                  <Text style={[styles.cardSubtitle, { color: t.colors.grayMutedDark }]}>Use your agent account to continue into the workspace.</Text>
                 </View>
               </View>
 
@@ -635,7 +635,7 @@ export default function LoginScreen({ navigation }: Props) {
               })}
 
               <View style={styles.metaRow}>
-                <Text style={[styles.metaText, { color: t.colors.grayMutedDark }]}>Only candidate accounts can sign in here.</Text>
+                <Text style={[styles.metaText, { color: t.colors.grayMutedDark }]}>Only registered agent accounts can sign in here.</Text>
                 <Pressable onPress={() => navigation.navigate('ForgotPassword')} hitSlop={10} style={({ pressed }) => [pressed && styles.pressed]}>
                   <Text style={[styles.metaLink, { color: t.colors.primary }]}>Forgot password?</Text>
                 </Pressable>
@@ -644,7 +644,7 @@ export default function LoginScreen({ navigation }: Props) {
               <Animated.View style={{ transform: [{ scale: ctaPulse }] }}>
                 <Pressable onPress={onLogin} disabled={loading} style={({ pressed }) => [styles.buttonPressable, pressed && styles.pressed, loading && styles.disabled]}>
                   <LinearGradient colors={t.colors.gradientButton as any} start={{ x: 0, y: 0.4 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
-                    <Text style={styles.primaryButtonText}>{loading ? 'Logging in...' : 'Login'}</Text>
+                    <Text style={styles.primaryButtonText}>{loading ? 'Signing in...' : 'Sign in as agent'}</Text>
                     <View style={styles.primaryArrowWrap}>
                       <Feather name="arrow-right" size={18} color="#FFFFFF" />
                     </View>
@@ -663,11 +663,11 @@ export default function LoginScreen({ navigation }: Props) {
                   pressed && styles.pressed,
                 ]}
               >
-                <Text style={[styles.secondaryButtonText, { color: t.colors.primary }]}>Create an account</Text>
+                <Text style={[styles.secondaryButtonText, { color: t.colors.primary }]}>Create agent account</Text>
               </Pressable>
             </Animated.View>
 
-            <Text style={[styles.footerNote, { color: t.colors.grayMutedDark }]}>Move from application to offer on mobile.</Text>
+            <Text style={[styles.footerNote, { color: t.colors.grayMutedDark }]}>Keep candidates, updates, and admin communication together on mobile.</Text>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>

@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, FlatList, Pressable, RefreshControl, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Animated, Easing, FlatList, Pressable, RefreshControl, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import ManagedViewBanner from '../../components/managed/ManagedViewBanner';
 import { EmptyState, Screen } from '../../components/ui';
 import { Spacing } from '../../constants/theme';
 import { InquiriesService } from '../../api/services';
@@ -10,6 +11,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InquiryStackParamList } from '../../navigation/app/AppNavigator';
 import { formatDate } from '../../utils/format';
 import { useTheme } from '../../theme/ThemeProvider';
+import { useAuthStore } from '../../context/authStore';
+import { getManagedCandidateId, getManagedCandidateName, isManagedViewActive, stripManagedViewState } from '../../utils/managedView';
 
 type Props = NativeStackScreenProps<InquiryStackParamList, 'InquiryList'>;
 
@@ -27,13 +30,38 @@ const hasInquiryReply = (item: Inquiry) => {
   return replies.some((reply: any) => String(reply?.message || '').trim());
 };
 
+const getInquiryStatusBucket = (item: Inquiry) => {
+  const status = String(item?.status || '').trim().toLowerCase();
+  if (status.includes('respond') || status.includes('close') || status.includes('resolved') || hasInquiryReply(item)) return 'Responded';
+  return 'Pending';
+};
+
+const getManagedCandidateIdFromInquiry = (item: Inquiry) =>
+  String(
+    (item as any)?.managedCandidate?.candidateId?._id ||
+      (item as any)?.managedCandidate?.candidateId?.id ||
+      (item as any)?.managedCandidate?.candidateId ||
+      (item as any)?.managedCandidateId ||
+      (item as any)?.candidateId ||
+      ''
+  ).trim();
+
 export default function InquiryListScreen({ navigation }: Props) {
   const t = useTheme();
   const { width } = useWindowDimensions();
   const compact = width < 390;
+  const user = useAuthStore((s) => s.user);
+  const token = useAuthStore((s) => s.token);
+  const signIn = useAuthStore((s) => s.signIn);
   const [items, setItems] = useState<Inquiry[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [query, setQuery] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'All' | 'Pending' | 'Responded'>('All');
+
+  const managedViewActive = useMemo(() => isManagedViewActive(user), [user]);
+  const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
+  const managedCandidateName = useMemo(() => getManagedCandidateName(user), [user]);
 
   const heroEntrance = useRef(new Animated.Value(0)).current;
   const listEntrance = useRef(new Animated.Value(0)).current;
@@ -57,7 +85,7 @@ export default function InquiryListScreen({ navigation }: Props) {
     const unsub = navigation.addListener('focus', load);
     load();
     return unsub;
-  }, [navigation]);
+  }, [managedCandidateId, navigation]);
 
   useEffect(() => {
     Animated.parallel([
@@ -107,19 +135,60 @@ export default function InquiryListScreen({ navigation }: Props) {
   const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
   const sweepX = sweep.interpolate({ inputRange: [0, 1], outputRange: [-180, 260] });
 
+  const exitManagedView = useCallback(async () => {
+    if (!token || !user) return;
+    await signIn({ token, user: stripManagedViewState(user) });
+    navigation.getParent()?.navigate('Candidates' as never);
+  }, [navigation, signIn, token, user]);
+
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+      return;
+    }
+    if (navigation.getParent()?.canGoBack()) {
+      navigation.getParent()?.goBack();
+      return;
+    }
+    navigation.getParent()?.navigate('Overview' as never);
+  }, [navigation]);
+
+  const visibleItems = useMemo(() => {
+    if (!managedViewActive || !managedCandidateId) return items;
+    return items.filter((item) => {
+      const candidateType = String((item as any)?.candidateType || '').trim().toUpperCase();
+      return candidateType === 'B2B' && getManagedCandidateIdFromInquiry(item) === managedCandidateId;
+    });
+  }, [items, managedCandidateId, managedViewActive]);
+
+  const filteredItems = useMemo(() => {
+    const term = query.trim().toLowerCase();
+    return visibleItems.filter((item) => {
+      const bucket = getInquiryStatusBucket(item);
+      const matchesStatus = statusFilter === 'All' || bucket === statusFilter;
+      const haystack = [
+        String(item?.subject || ''),
+        String(item?.message || ''),
+        String((item as any)?.job?.title || ''),
+        String(item?.email || ''),
+      ]
+        .join(' ')
+        .toLowerCase();
+      const matchesQuery = !term || haystack.includes(term);
+      return matchesStatus && matchesQuery;
+    });
+  }, [query, statusFilter, visibleItems]);
+
   const stats = useMemo(() => {
-    const total = items.length;
-    const resolved = items.filter((item) => {
-      const status = String(item.status || '').toLowerCase();
-      return status.includes('close') || status.includes('resolved') || hasInquiryReply(item);
-    }).length;
-    const open = Math.max(total - resolved, 0);
-    return { total, open, resolved };
-  }, [items]);
+    const total = visibleItems.length;
+    const responded = visibleItems.filter((item) => getInquiryStatusBucket(item) === 'Responded').length;
+    const pending = Math.max(total - responded, 0);
+    return { total, pending, responded };
+  }, [visibleItems]);
   const heroStats = [
-    { key: 'threads', value: stats.total, label: 'Threads', color: '#1768B8', icon: 'message-square' as const, iconBg: '#EAF2FF' },
-    { key: 'open', value: stats.open, label: 'Open', color: '#C46C15', icon: 'clock' as const, iconBg: '#FFF4E4' },
-    { key: 'resolved', value: stats.resolved, label: 'Resolved', color: '#118D4C', icon: 'check-circle' as const, iconBg: '#EAF8F0' },
+    { key: 'threads', value: stats.total, label: 'Total Inquiries', color: '#1768B8', icon: 'message-square' as const, iconBg: '#EAF2FF' },
+    { key: 'pending', value: stats.pending, label: 'Pending Response', color: '#C46C15', icon: 'clock' as const, iconBg: '#FFF4E4' },
+    { key: 'responded', value: stats.responded, label: 'Responded', color: '#118D4C', icon: 'check-circle' as const, iconBg: '#EAF8F0' },
   ];
 
   return (
@@ -127,7 +196,7 @@ export default function InquiryListScreen({ navigation }: Props) {
       <FlatList
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
-        data={items}
+        data={filteredItems}
         keyExtractor={(it) => it._id}
         refreshControl={
           <RefreshControl
@@ -141,18 +210,26 @@ export default function InquiryListScreen({ navigation }: Props) {
         }
         ListHeaderComponent={
           <View style={styles.headerWrap}>
+            {managedViewActive ? (
+              <ManagedViewBanner
+                candidateName={managedCandidateName}
+                subtitle="Inquiry threads are filtered for the active managed candidate"
+                onExit={exitManagedView}
+              />
+            ) : null}
             <Animated.View style={[styles.headerRow, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
               <Pressable
-                onPress={() => navigation.canGoBack() && navigation.goBack()}
-                style={({ pressed }) => [styles.backBtn, !navigation.canGoBack() && styles.backBtnHidden, pressed && styles.pressed]}
-                disabled={!navigation.canGoBack()}
+                onPress={handleBack}
+                style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}
               >
                 <Feather name="arrow-left" size={18} color="#1B3890" />
               </Pressable>
               <View style={styles.headerTextWrap}>
                 <Text style={[styles.eyebrow, { fontFamily: t.typography.fontFamily.bold }]}>SUPPORT DESK</Text>
                 <Text style={[styles.heading, { color: '#1B3890', fontFamily: t.typography.fontFamily.bold }]}>My Inquiries</Text>
-                <Text style={[styles.sub, { color: '#5E6F95', fontFamily: t.typography.fontFamily.medium }]}>Track support threads in one place.</Text>
+                <Text style={[styles.sub, { color: '#5E6F95', fontFamily: t.typography.fontFamily.medium }]}>
+                  {managedViewActive ? 'Track managed-candidate inquiry tickets in one place.' : 'Track support threads in one place.'}
+                </Text>
               </View>
               <View style={styles.liveChip}>
                 <Animated.View style={[styles.liveDot, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
@@ -178,11 +255,13 @@ export default function InquiryListScreen({ navigation }: Props) {
 
               <View style={[styles.heroMain, compact && styles.heroMainCompact]}>
                 <View style={styles.heroCopyBlock}>
-                  <Text style={[styles.heroTitle, { fontFamily: t.typography.fontFamily.bold }]}>Keep support threads moving.</Text>
+                  <Text style={[styles.heroTitle, { fontFamily: t.typography.fontFamily.bold }]}>Track inquiry tickets and replies.</Text>
                   <Text style={[styles.heroBody, { fontFamily: t.typography.fontFamily.medium }]}>
                     {stats.total
-                      ? `${stats.open} inquiries are active. Open one or start a new thread.`
-                      : 'Start a thread when you need help.'}
+                      ? `${stats.pending} inquiries are waiting for a response. Open a ticket to review the latest update.`
+                      : managedViewActive
+                        ? 'This candidate has no job inquiries yet. Inquiries appear after submitting them from a job detail page.'
+                        : 'Start a thread when you need help.'}
                   </Text>
                   <View style={styles.heroStatsRow}>
                     {heroStats.map((item) => (
@@ -221,31 +300,64 @@ export default function InquiryListScreen({ navigation }: Props) {
               </View>
             </Animated.View>
 
-            <Animated.View style={[styles.createWrap, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
-              <Pressable onPress={() => navigation.push('CreateInquiry', { jobId: '' })} style={({ pressed }) => [styles.createInquiryCard, pressed && styles.pressed]}>
-                <LinearGradient colors={t.colors.gradientButton as any} start={{ x: 0, y: 0.4 }} end={{ x: 1, y: 1 }} style={styles.createInquiryFill}>
-                  <View style={styles.createInquiryCopy}>
-                    <Text style={[styles.createInquiryTitle, { fontFamily: t.typography.fontFamily.bold }]}>Start a new inquiry</Text>
-                    <Text style={[styles.createInquiryText, { fontFamily: t.typography.fontFamily.medium }]}>Ask, report, or request an update.</Text>
-                  </View>
-                  <View style={styles.createInquiryIcon}>
-                    <Feather name="plus" size={18} color="#FFFFFF" />
-                  </View>
-                </LinearGradient>
-              </Pressable>
+            <Animated.View style={[styles.filtersWrap, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
+              <View style={styles.searchBox}>
+                <Feather name="search" size={16} color="#1D5FD2" />
+                <TextInput
+                  value={query}
+                  onChangeText={setQuery}
+                  placeholder="Search subject, job, message, or email"
+                  placeholderTextColor="#7A8FB6"
+                  style={[styles.searchInput, { fontFamily: t.typography.fontFamily.medium }]}
+                />
+                {query.trim() ? (
+                  <Pressable onPress={() => setQuery('')} style={({ pressed }) => [styles.searchClear, pressed && styles.pressed]}>
+                    <Feather name="x" size={14} color="#5D7399" />
+                  </Pressable>
+                ) : null}
+              </View>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+                {(['All', 'Pending', 'Responded'] as const).map((value) => {
+                  const active = statusFilter === value;
+                  return (
+                    <Pressable
+                      key={value}
+                      onPress={() => setStatusFilter(value)}
+                      style={({ pressed }) => [styles.filterChip, active && styles.filterChipActive, pressed && styles.pressed]}
+                    >
+                      <Text style={[styles.filterChipText, active && styles.filterChipTextActive, { fontFamily: t.typography.fontFamily.bold }]}>
+                        {value}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
             </Animated.View>
           </View>
         }
         ListEmptyComponent={
           <EmptyState
             icon="o"
-            title={loading ? 'Loading...' : 'No inquiries'}
-            message={loading ? 'Please wait' : 'Start an inquiry from a job or here.'}
+            title={loading ? 'Loading...' : filteredItems.length ? 'No inquiries' : query.trim() || statusFilter !== 'All' ? 'No inquiries match' : managedViewActive ? 'No managed candidate inquiries yet' : 'No inquiries'}
+            message={
+              loading
+                ? 'Please wait'
+                : query.trim() || statusFilter !== 'All'
+                  ? 'Try a different search or filter.'
+                  : managedViewActive
+                    ? 'Managed-candidate job inquiries appear here after they are submitted from the job detail page.'
+                    : 'Start an inquiry from a job or here.'
+            }
           />
         }
         renderItem={({ item, index }) => {
-          const tone = statusTone(item.status || 'Open');
+          const bucket = getInquiryStatusBucket(item);
+          const tone = statusTone(bucket);
           const cardY = listEntrance.interpolate({ inputRange: [0, 1], outputRange: [20 + Math.min(index, 4) * 8, 0] });
+          const jobTitle = String((item as any)?.job?.title || '').trim();
+          const jobCompany = String((item as any)?.job?.company || '').trim();
+          const responsePreview = String((item as any)?.response?.message || '').trim();
 
           return (
             <Animated.View style={{ opacity: listEntrance, transform: [{ translateY: cardY }] }}>
@@ -267,9 +379,21 @@ export default function InquiryListScreen({ navigation }: Props) {
                     <Text style={[styles.metaText, { fontFamily: t.typography.fontFamily.medium }]}>{`Created ${formatDate(item.createdAt) || 'recently'}`}</Text>
                   </View>
                   <View style={[styles.statusBadge, { backgroundColor: tone.bg, borderColor: tone.border }]}>
-                    <Text style={[styles.statusText, { color: tone.text, fontFamily: t.typography.fontFamily.bold }]}>{item.status || 'Open'}</Text>
+                    <Text style={[styles.statusText, { color: tone.text, fontFamily: t.typography.fontFamily.bold }]}>{bucket}</Text>
                   </View>
                 </View>
+
+                {jobTitle ? (
+                  <View style={styles.jobRefCard}>
+                    <View style={styles.jobRefIcon}>
+                      <Feather name="briefcase" size={14} color="#1D5FD2" />
+                    </View>
+                    <View style={styles.jobRefCopy}>
+                      <Text style={[styles.jobRefTitle, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>{jobTitle}</Text>
+                      {jobCompany ? <Text style={[styles.jobRefMeta, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>{jobCompany}</Text> : null}
+                    </View>
+                  </View>
+                ) : null}
 
                 {item.message ? (
                   <Text style={[styles.message, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={2}>
@@ -277,14 +401,21 @@ export default function InquiryListScreen({ navigation }: Props) {
                   </Text>
                 ) : null}
 
+                {bucket === 'Responded' && responsePreview ? (
+                  <View style={styles.responsePreview}>
+                    <Text style={[styles.responsePreviewLabel, { fontFamily: t.typography.fontFamily.bold }]}>Latest response</Text>
+                    <Text style={[styles.responsePreviewText, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={2}>{responsePreview}</Text>
+                  </View>
+                ) : null}
+
                 <View style={styles.actionsRow}>
                   <View style={styles.tapHint}>
                     <Feather name="arrow-up-right" size={14} color="#5D7BBE" />
-                    <Text style={[styles.tapHintText, { fontFamily: t.typography.fontFamily.bold }]}>Open thread</Text>
+                    <Text style={[styles.tapHintText, { fontFamily: t.typography.fontFamily.bold }]}>View details</Text>
                   </View>
                   <View style={styles.replyChip}>
                     <Animated.View style={[styles.replyDot, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
-                    <Text style={[styles.replyChipText, { fontFamily: t.typography.fontFamily.medium }]}>Latest update ready</Text>
+                    <Text style={[styles.replyChipText, { fontFamily: t.typography.fontFamily.medium }]}>{bucket === 'Responded' ? 'Reply available' : 'Waiting for reply'}</Text>
                   </View>
                 </View>
               </Pressable>
@@ -516,6 +647,15 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   heroFooterChipText: { color: '#118D4C', fontSize: 9, lineHeight: 11, fontWeight: '800' },
+  filtersWrap: { marginBottom: 10, gap: 10 },
+  searchBox: { minHeight: 48, borderRadius: 18, paddingHorizontal: 14, backgroundColor: '#F6FAFF', borderWidth: 1, borderColor: '#D8E4F6', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  searchInput: { flex: 1, color: '#14316E', fontSize: 13, lineHeight: 16, paddingVertical: 0 },
+  searchClear: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#ECF2FA' },
+  filterRow: { gap: 8, paddingRight: 8 },
+  filterChip: { minHeight: 34, borderRadius: 999, paddingHorizontal: 12, borderWidth: 1, borderColor: '#D8E4F6', backgroundColor: '#F7FAFF', alignItems: 'center', justifyContent: 'center' },
+  filterChipActive: { backgroundColor: '#1B6FC1', borderColor: '#1B6FC1' },
+  filterChipText: { color: '#1D528F', fontSize: 12, lineHeight: 14, fontWeight: '800' },
+  filterChipTextActive: { color: '#FFFFFF' },
   createWrap: { marginBottom: 10 },
   createInquiryCard: {
     borderRadius: 20,
@@ -613,7 +753,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   statusText: { fontSize: 9, lineHeight: 11, fontWeight: '900' },
+  jobRefCard: { marginTop: 10, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 11, backgroundColor: '#F6FAFF', borderWidth: 1, borderColor: '#DDE7F6', flexDirection: 'row', alignItems: 'center', gap: 10 },
+  jobRefIcon: { width: 30, height: 30, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#EAF2FF' },
+  jobRefCopy: { flex: 1 },
+  jobRefTitle: { color: '#15306F', fontSize: 12, lineHeight: 15, fontWeight: '800' },
+  jobRefMeta: { marginTop: 2, color: '#68809A', fontSize: 10, lineHeight: 12, fontWeight: '600' },
   message: { marginTop: 8, color: '#2A3B61', fontSize: 11, lineHeight: 15, fontWeight: '600' },
+  responsePreview: { marginTop: 12, borderRadius: 16, paddingHorizontal: 12, paddingVertical: 12, backgroundColor: '#F7FCF9', borderWidth: 1, borderColor: '#D5EBDD' },
+  responsePreviewLabel: { color: '#148A4D', fontSize: 10, lineHeight: 12, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 },
+  responsePreviewText: { marginTop: 6, color: '#607784', fontSize: 12, lineHeight: 17, fontWeight: '600' },
   actionsRow: {
     marginTop: 12,
     flexDirection: 'row',
@@ -656,3 +804,4 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 });
+

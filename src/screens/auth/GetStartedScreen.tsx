@@ -11,18 +11,18 @@ import { PageDecor } from '../../components/ui';
 type Props = NativeStackScreenProps<AuthStackParamList, 'GetStarted'>;
 
 const STEPS = [
-  { icon: 'search' as const, title: 'Discover roles', text: 'Find roles that fit you.' },
-  { icon: 'message-circle' as const, title: 'Stay connected', text: 'Keep messages and updates together.' },
-  { icon: 'check-circle' as const, title: 'Move faster', text: 'Apply and track progress fast.' },
+  { icon: 'users' as const, title: 'Manage candidates', text: 'Track profiles, documents, and next actions in one place.' },
+  { icon: 'message-square' as const, title: 'Coordinate fast', text: 'Keep admin chat, meetings, and updates close at hand.' },
+  { icon: 'bar-chart-2' as const, title: 'See the pipeline', text: 'Follow performance, activity, and progress from your phone.' },
 ];
 
 const FLOATING_BADGES = [
-  { icon: 'briefcase' as const, title: 'Live jobs', value: '120+' },
-  { icon: 'bell' as const, title: 'Instant updates', value: '24/7' },
+  { icon: 'user-check' as const, title: 'Managed profiles', value: '240+' },
+  { icon: 'activity' as const, title: 'Admin support', value: 'Live' },
 ];
 
-const SIGNAL_ITEMS = ['Roles matched', 'Messages ready', 'Status updates'];
-const MARKET_TAGS = ['Verified roles', 'Recruiter chat', 'Real-time status', 'Fast apply'];
+const SIGNAL_ITEMS = ['Candidate workspace', 'Agent analytics', 'Live chat'];
+const MARKET_TAGS = ['Pipeline overview', 'Managed candidates', 'Document follow-up', 'Meetings and tasks', 'Admin support'];
 
 export default function GetStartedScreen({ navigation }: Props) {
   const t = useTheme();
@@ -362,7 +362,7 @@ export default function GetStartedScreen({ navigation }: Props) {
           <Animated.View style={[styles.hero, { opacity: heroOpacity, transform: [{ translateY: heroTranslateY }] }]}>
             <View style={[styles.badge, { backgroundColor: t.isDark ? 'rgba(17, 29, 52, 0.88)' : 'rgba(255,255,255,0.8)', borderColor: t.colors.border }]}>
               <Feather name="star" size={14} color={t.colors.secondary} />
-              <Text style={[styles.badgeText, { color: t.colors.primary }]}>Blue Whale candidate app</Text>
+              <Text style={[styles.badgeText, { color: t.colors.primary }]}>Blue Whale agent workspace</Text>
             </View>
 
             <View style={styles.visualStage}>
@@ -422,9 +422,9 @@ export default function GetStartedScreen({ navigation }: Props) {
               </Animated.View>
             </View>
 
-            <Text style={[styles.title, { color: t.colors.primary }]}>Start your next move</Text>
+            <Text style={[styles.title, { color: t.colors.primary }]}>Run your agent workflow anywhere</Text>
             <Text style={[styles.subtitle, { color: t.colors.grayMutedDark }]}>
-              Find jobs, chat, and track applications faster.
+              Manage candidates, follow the pipeline, and stay connected with admins from one mobile workspace.
             </Text>
 
             <View style={[styles.signalStrip, { backgroundColor: t.isDark ? 'rgba(17, 29, 52, 0.82)' : 'rgba(255,255,255,0.7)', borderColor: t.colors.border }]}>
@@ -476,12 +476,12 @@ export default function GetStartedScreen({ navigation }: Props) {
 
             <View style={styles.metricRow}>
               <View style={[styles.metricCard, { backgroundColor: t.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.7)', borderColor: t.colors.border }]}>
-                <Text style={[styles.metricValue, { color: t.colors.primary }]}>3</Text>
-                <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>simple steps</Text>
+                <Text style={[styles.metricValue, { color: t.colors.primary }]}>5</Text>
+                <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>core agent tools</Text>
               </View>
               <View style={[styles.metricCard, { backgroundColor: t.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.7)', borderColor: t.colors.border }]}>
                 <Text style={[styles.metricValue, { color: t.colors.primary }]}>1</Text>
-                <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>clean workflow</Text>
+                <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>shared workspace</Text>
               </View>
             </View>
 
@@ -510,7 +510,7 @@ export default function GetStartedScreen({ navigation }: Props) {
             <Animated.View style={{ transform: [{ scale: ctaPulse }] }}>
               <Pressable onPress={() => navigation.navigate('Login')} style={({ pressed }) => [styles.primaryPressable, pressed && styles.pressed]}>
                 <LinearGradient colors={t.colors.gradientButton as any} start={{ x: 0, y: 0.4 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
-                  <Text style={styles.primaryButtonText}>Get Started</Text>
+                  <Text style={styles.primaryButtonText}>Sign in as agent</Text>
                   <View style={styles.primaryArrowWrap}>
                     <Feather name="arrow-right" size={18} color="#FFFFFF" />
                   </View>
@@ -529,11 +529,11 @@ export default function GetStartedScreen({ navigation }: Props) {
                 pressed && styles.pressed,
               ]}
             >
-              <Text style={[styles.secondaryButtonText, { color: t.colors.primary }]}>Create an account</Text>
+              <Text style={[styles.secondaryButtonText, { color: t.colors.primary }]}>Create agent account</Text>
             </Pressable>
 
             <Pressable onPress={() => navigation.navigate('Login')} hitSlop={10} style={({ pressed }) => [styles.signInLinkWrap, pressed && styles.pressed]}>
-              <Text style={[styles.signInLink, { color: t.colors.primary }]}>Already have an account? Sign in</Text>
+              <Text style={[styles.signInLink, { color: t.colors.primary }]}>Already registered as an agent? Sign in</Text>
             </Pressable>
           </Animated.View>
         </ScrollView>

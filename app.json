@@ -3,7 +3,7 @@
     "name": "bluewhale-agent-mobile",
     "slug": "bluewhale-agent-mobile",
     "scheme": "bluewhale-agent",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "orientation": "portrait",
     "icon": "./assets/icon-app-safe.png",
     "userInterfaceStyle": "automatic",
@@ -18,7 +18,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.bluewhale.agent",
-      "buildNumber": "10"
+      "buildNumber": "11"
     },
     "android": {
       "adaptiveIcon": {
@@ -26,7 +26,7 @@
         "backgroundColor": "#F5F7FB"
       },
       "package": "com.bluewhale.agent",
-      "versionCode": 10
+      "versionCode": 11
     },
     "plugins": [
       [
@@ -47,6 +47,11 @@
         }
       ]
     ],
-    "owner": "tharu_neth"
+    "owner": "tharu_neth",
+    "extra": {
+      "eas": {
+        "projectId": "ad24f5ca-8edb-4d6a-a5e3-364223b71b69"
+      }
+    }
   }
 }

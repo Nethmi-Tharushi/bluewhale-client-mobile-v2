@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Animated, Easing, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
 import { Feather } from '@expo/vector-icons';
@@ -9,6 +9,8 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InquiryStackParamList } from '../../navigation/app/AppNavigator';
 import { useTheme } from '../../theme/ThemeProvider';
 import { ensureUploadSizeWithinLimit } from '../../utils/uploadValidation';
+import { useAuthStore } from '../../context/authStore';
+import { getManagedCandidate, getManagedCandidateId, getManagedCandidateName, isManagedViewActive } from '../../utils/managedView';
 
 type Props = NativeStackScreenProps<InquiryStackParamList, 'CreateInquiry'>;
 
@@ -17,10 +19,25 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
   const { width } = useWindowDimensions();
   const compact = width < 390;
   const routeJobId = typeof route.params?.jobId === 'string' ? route.params.jobId.trim() : '';
+  const user = useAuthStore((state) => state.user);
+
+  const role = String(user?.userType || user?.role || '').toLowerCase();
+  const agentMode = role.includes('agent');
+  const managedMode = useMemo(() => isManagedViewActive(user), [user]);
+  const managedCandidate = useMemo(() => getManagedCandidate(user), [user]);
+  const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
+  const managedCandidateName = useMemo(() => getManagedCandidateName(user), [user]);
+  const managedCandidateEmail = String(managedCandidate?.email || '').trim();
+  const defaultEmail = useMemo(
+    () => String((managedMode ? managedCandidateEmail : user?.email) || '').trim(),
+    [managedCandidateEmail, managedMode, user?.email]
+  );
+  const canUseJobInquiryFlow = managedMode || !agentMode;
+  const openManagedCandidates = () => (navigation.getParent() as any)?.navigate('Candidates');
 
   const [jobId, setJobId] = useState(routeJobId);
+  const [email, setEmail] = useState(defaultEmail);
   const [subject, setSubject] = useState('');
-  const [category, setCategory] = useState('General');
   const [message, setMessage] = useState('');
   const [fileName, setFileName] = useState<string | null>(null);
   const [attachmentUrl, setAttachmentUrl] = useState<string | null>(null);
@@ -36,6 +53,10 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
   useEffect(() => {
     setJobId(routeJobId || '');
   }, [routeJobId]);
+
+  useEffect(() => {
+    setEmail(defaultEmail);
+  }, [defaultEmail]);
 
   useEffect(() => {
     Animated.parallel([
@@ -85,10 +106,41 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
   const pulseOpacity = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.22, 0.48] });
   const floatY = float.interpolate({ inputRange: [0, 1], outputRange: [0, -8] });
   const sweepX = sweep.interpolate({ inputRange: [0, 1], outputRange: [-180, 260] });
+
+  const heroTitle = managedMode ? `Make Inquiry as ${managedCandidateName}` : 'Create Job Inquiry';
+  const heroSubtitle = managedMode
+    ? 'Send this question from managed candidate view while staying on the agent session.'
+    : 'Ask about a specific role and keep the full thread under your inquiry history.';
+  const replyRouteLabel = managedMode ? 'Reply route' : 'Thread mode';
+  const replyRouteValue = managedMode ? 'Agent email' : 'Candidate inbox';
+  const emailLabel = managedMode ? 'Managed candidate email' : 'Email';
+  const jobLinked = Boolean(routeJobId);
+
   const heroStats = [
-    { key: 'job', value: jobId ? 'Linked' : 'Needed', label: 'Job', color: '#1768B8', icon: 'briefcase' as const, iconBg: '#EAF2FF' },
-    { key: 'proof', value: attachmentUrl ? 'Added' : 'Optional', label: 'Proof', color: '#C46C15', icon: 'paperclip' as const, iconBg: '#FFF4E4' },
-    { key: 'state', value: message.trim() ? 'Ready' : 'Draft', label: 'State', color: '#118D4C', icon: 'edit-3' as const, iconBg: '#EAF8F0' },
+    {
+      key: 'job',
+      value: jobLinked ? 'Linked' : jobId.trim() ? 'Added' : 'Needed',
+      label: 'Job',
+      color: '#1768B8',
+      icon: 'briefcase' as const,
+      iconBg: '#EAF2FF',
+    },
+    {
+      key: 'sender',
+      value: managedMode ? 'Managed' : agentMode ? 'Agent' : 'Candidate',
+      label: 'Sender',
+      color: '#7A44E2',
+      icon: 'user-check' as const,
+      iconBg: '#F2EAFF',
+    },
+    {
+      key: 'reply',
+      value: managedMode ? 'Agent' : 'Thread',
+      label: 'Replies',
+      color: '#118D4C',
+      icon: 'corner-down-left' as const,
+      iconBg: '#EAF8F0',
+    },
   ];
 
   const pickAttachment = async () => {
@@ -116,8 +168,16 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
   };
 
   const submit = async () => {
+    if (!canUseJobInquiryFlow) {
+      Alert.alert('Switch required', 'Open a managed candidate first, then use Switch to Candidate View before sending a job inquiry.');
+      return;
+    }
     if (!jobId.trim()) {
-      Alert.alert('Job required', 'Please provide a Job ID (or create inquiry from a job).');
+      Alert.alert('Job required', 'Please provide a Job ID or open this form from a specific job.');
+      return;
+    }
+    if (!email.trim()) {
+      Alert.alert('Email required', 'Please confirm the sender email before submitting.');
       return;
     }
     if (!message.trim()) {
@@ -128,18 +188,19 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
     setSubmitting(true);
     try {
       await InquiriesService.create(jobId.trim(), {
+        email: email.trim(),
         subject: subject.trim() || undefined,
-        category: category.trim() || 'General',
         message: message.trim(),
         attachmentUrl: attachmentUrl || undefined,
+        managedCandidateId: managedMode ? managedCandidateId || undefined : undefined,
       });
       setSubject('');
-      setCategory('General');
       setMessage('');
       setFileName(null);
       setAttachmentUrl(null);
-      setJobId('');
-      Alert.alert('Sent', 'Your inquiry has been created.');
+      setJobId(routeJobId || '');
+      setEmail(defaultEmail);
+      Alert.alert('Inquiry sent', managedMode ? `Inquiry submitted for ${managedCandidateName}.` : 'Your inquiry has been sent.');
       navigation.goBack();
     } catch (e: any) {
       Alert.alert('Failed', e?.userMessage || e?.message || 'Please try again');
@@ -160,13 +221,13 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
             <Feather name="arrow-left" size={18} color="#1B3890" />
           </Pressable>
           <View style={styles.headerTextWrap}>
-            <Text style={[styles.eyebrow, { fontFamily: t.typography.fontFamily.bold }]}>NEW SUPPORT THREAD</Text>
-            <Text style={[styles.h, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>Create Inquiry</Text>
-            <Text style={[styles.p, { color: '#5E6F95', fontFamily: t.typography.fontFamily.medium }]}>Send one clear message to support.</Text>
+            <Text style={[styles.eyebrow, { fontFamily: t.typography.fontFamily.bold }]}>JOB INQUIRY FLOW</Text>
+            <Text style={[styles.h, { color: t.colors.primary, fontFamily: t.typography.fontFamily.bold }]}>{heroTitle}</Text>
+            <Text style={[styles.p, { color: '#5E6F95', fontFamily: t.typography.fontFamily.medium }]}>{heroSubtitle}</Text>
           </View>
           <View style={styles.liveChip}>
             <Animated.View style={[styles.liveDot, { opacity: pulseOpacity, transform: [{ scale: pulseScale }] }]} />
-            <Text style={[styles.liveText, { fontFamily: t.typography.fontFamily.bold }]}>{submitting ? 'Sending' : 'Draft'}</Text>
+            <Text style={[styles.liveText, { fontFamily: t.typography.fontFamily.bold }]}>{submitting ? 'Sending' : managedMode ? 'Managed' : 'Draft'}</Text>
           </View>
         </Animated.View>
 
@@ -177,20 +238,22 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
 
           <View style={styles.heroTopRow}>
             <View style={styles.heroBadge}>
-              <Feather name="edit-3" size={13} color="#1768B8" />
-              <Text style={[styles.heroBadgeText, { fontFamily: t.typography.fontFamily.bold }]}>Composer lane</Text>
+              <Feather name="message-square" size={13} color="#1768B8" />
+              <Text style={[styles.heroBadgeText, { fontFamily: t.typography.fontFamily.bold }]}>{managedMode ? 'Managed candidate view' : 'Candidate inquiry'}</Text>
             </View>
             <View style={styles.heroSignal}>
               <Feather name="corner-down-right" size={13} color="#118D4C" />
-              <Text style={[styles.heroSignalText, { fontFamily: t.typography.fontFamily.bold }]}>Track replies</Text>
+              <Text style={[styles.heroSignalText, { fontFamily: t.typography.fontFamily.bold }]}>{replyRouteValue}</Text>
             </View>
           </View>
 
           <View style={[styles.heroMain, compact && styles.heroMainCompact]}>
             <View style={styles.heroCopyBlock}>
-              <Text style={[styles.heroTitle, { fontFamily: t.typography.fontFamily.bold }]}>Keep support context in one place.</Text>
+              <Text style={[styles.heroTitleText, { fontFamily: t.typography.fontFamily.bold }]}>Ask about one role with the right candidate context.</Text>
               <Text style={[styles.heroBody, { fontFamily: t.typography.fontFamily.medium }]}>
-                Add a job ID, your issue, and proof if needed.
+                {managedMode
+                  ? `This inquiry will include ${managedCandidateName}'s managed candidate context and send replies back to the agent account.`
+                  : 'Use the linked role and a clear message so support can reply in the same inquiry thread.'}
               </Text>
 
               <View style={styles.heroStatsRow}>
@@ -211,11 +274,13 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
                 <View style={styles.heroBubblePrimary}>
                   <Feather name="hash" size={12} color="#1768B8" />
                   <Text style={[styles.heroBubblePrimaryText, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
-                    {jobId || 'Job ID'}
+                    {jobId || 'Job ID required'}
                   </Text>
                 </View>
                 <View style={styles.heroBubbleSecondary}>
-                  <Text style={[styles.heroBubbleSecondaryText, { fontFamily: t.typography.fontFamily.medium }]}>{fileName ? 'Attachment added' : 'No attachment yet'}</Text>
+                  <Text style={[styles.heroBubbleSecondaryText, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>
+                    {managedMode ? managedCandidateName : email || 'Sender email'}
+                  </Text>
                 </View>
                 <View style={styles.heroTimeline}>
                   <View style={[styles.heroTimelineBar, styles.heroTimelineBarWide]} />
@@ -224,12 +289,38 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
                 </View>
                 <View style={styles.heroFooterChip}>
                   <Feather name="send" size={12} color="#118D4C" />
-                  <Text style={[styles.heroFooterChipText, { fontFamily: t.typography.fontFamily.bold }]}>Ready to send</Text>
+                  <Text style={[styles.heroFooterChipText, { fontFamily: t.typography.fontFamily.bold }]}>{replyRouteLabel}: {replyRouteValue}</Text>
                 </View>
               </View>
             </Animated.View>
           </View>
         </Animated.View>
+
+        {!canUseJobInquiryFlow ? (
+          <Animated.View style={[styles.guardCard, { opacity: formEntrance, transform: [{ translateY: sectionY }] }]}>
+            <View style={styles.guardIconWrap}>
+              <Feather name="shuffle" size={18} color="#FFFFFF" />
+            </View>
+            <View style={styles.guardCopy}>
+              <Text style={[styles.guardTitle, { fontFamily: t.typography.fontFamily.bold }]}>Switch to Candidate View first</Text>
+              <Text style={[styles.guardText, { fontFamily: t.typography.fontFamily.medium }]}>
+                Agent job inquiries are only available while you are inside a managed candidate workspace. Open a candidate from Managed Candidates, tap Switch to Candidate View, then come back to the job.
+              </Text>
+              <Pressable onPress={openManagedCandidates} style={({ pressed }) => [styles.switchCandidateBtn, styles.switchCandidateBtnWarm, pressed && styles.pressed]}>
+                <View style={styles.switchCandidateMain}>
+                  <View style={[styles.switchCandidateIconWrap, styles.switchCandidateIconWrapWarm]}>
+                    <Feather name="users" size={16} color="#FFFFFF" />
+                  </View>
+                  <View style={styles.switchCandidateCopy}>
+                    <Text style={[styles.switchCandidateText, styles.switchCandidateTextWarm, { fontFamily: t.typography.fontFamily.bold }]}>Open Managed Candidates</Text>
+                    <Text style={[styles.switchCandidateSubtext, styles.switchCandidateSubtextWarm, { fontFamily: t.typography.fontFamily.medium }]}>Choose a candidate and switch profile first</Text>
+                  </View>
+                  <Feather name="arrow-right" size={16} color="#FFFFFF" />
+                </View>
+              </Pressable>
+            </View>
+          </Animated.View>
+        ) : null}
 
         <Animated.View style={[styles.formCard, { opacity: formEntrance, transform: [{ translateY: sectionY }] }]}>
           <View style={styles.sectionHeader}>
@@ -238,21 +329,66 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
               <Text style={[styles.sectionTitle, { fontFamily: t.typography.fontFamily.bold }]}>Inquiry Form</Text>
             </View>
             <View style={styles.sectionChip}>
-              <Feather name="message-circle" size={12} color="#1D5FD2" />
-              <Text style={[styles.sectionChipText, { fontFamily: t.typography.fontFamily.bold }]}>Support</Text>
+              <Feather name="life-buoy" size={12} color="#FFFFFF" />
+              <Text style={[styles.sectionChipText, { fontFamily: t.typography.fontFamily.bold }]}>Job support</Text>
             </View>
           </View>
 
-          <Input label="Job ID" value={jobId} onChangeText={setJobId} placeholder="Paste job ID" />
-          <Input label="Subject (optional)" value={subject} onChangeText={setSubject} placeholder="Topic summary" />
-          <Input label="Category" value={category} onChangeText={setCategory} placeholder="General / Payments / Documents" />
+          {managedMode ? (
+            <View style={styles.contextCard}>
+              <View style={styles.contextRow}>
+                <View style={styles.contextIconWrap}>
+                  <Feather name="user-check" size={16} color="#FFFFFF" />
+                </View>
+                <View style={styles.contextCopy}>
+                  <Text style={[styles.contextTitle, { fontFamily: t.typography.fontFamily.bold }]}>{managedCandidateName}</Text>
+                  <Text style={[styles.contextText, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={2}>
+                    This inquiry will be submitted as a B2B managed candidate inquiry using your agent session.
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.contextMetaRow}>
+                <View style={styles.contextMetaChip}>
+                  <Feather name="mail" size={12} color="#1768B8" />
+                  <Text style={[styles.contextMetaText, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>{managedCandidateEmail || 'Email not available'}</Text>
+                </View>
+                <View style={styles.contextMetaChip}>
+                  <Feather name="repeat" size={12} color="#118D4C" />
+                  <Text style={[styles.contextMetaText, { fontFamily: t.typography.fontFamily.bold }]}>Replies to agent</Text>
+                </View>
+              </View>
+              <Pressable onPress={openManagedCandidates} style={({ pressed }) => [styles.switchCandidateBtn, pressed && styles.pressed]}>
+                <View style={styles.switchCandidateMain}>
+                  <View style={styles.switchCandidateIconWrap}>
+                    <Feather name="refresh-cw" size={16} color="#FFFFFF" />
+                  </View>
+                  <View style={styles.switchCandidateCopy}>
+                    <Text style={[styles.switchCandidateText, { fontFamily: t.typography.fontFamily.bold }]}>Switch candidate profile</Text>
+                    <Text style={[styles.switchCandidateSubtext, { fontFamily: t.typography.fontFamily.medium }]}>Open Managed Candidates and change the active profile</Text>
+                  </View>
+                  <Feather name="arrow-right" size={16} color="#FFFFFF" />
+                </View>
+              </Pressable>
+            </View>
+          ) : null}
+
+          <Input
+            label="Job ID"
+            value={jobId}
+            onChangeText={setJobId}
+            placeholder="Paste job ID"
+            editable={!jobLinked}
+          />
+          {jobLinked ? <Text style={[styles.fieldHint, { fontFamily: t.typography.fontFamily.medium }]}>Linked from the selected job details page.</Text> : null}
+          <Input label={emailLabel} value={email} onChangeText={setEmail} placeholder="name@example.com" keyboardType="email-address" />
+          <Input label="Subject (optional)" value={subject} onChangeText={setSubject} placeholder="Short reason for the inquiry" />
           <Input label="Message" value={message} onChangeText={setMessage} placeholder="Write your inquiry..." multiline />
 
           <View style={styles.attachCard}>
             <View style={styles.attachHeader}>
               <View>
                 <Text style={[styles.label, { color: '#1B233F', fontFamily: t.typography.fontFamily.bold }]}>Attachment</Text>
-                <Text style={[styles.attachHint, { fontFamily: t.typography.fontFamily.medium }]}>Optional proof to give support more context.</Text>
+                <Text style={[styles.attachHint, { fontFamily: t.typography.fontFamily.medium }]}>Optional proof to give support extra context.</Text>
               </View>
               <View style={styles.attachState}>
                 <Text style={[styles.attachStateText, { fontFamily: t.typography.fontFamily.bold }]}>{fileName ? 'Added' : 'Optional'}</Text>
@@ -267,8 +403,8 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
                 <Text style={[styles.file, { color: '#21345A', fontFamily: t.typography.fontFamily.bold }]} numberOfLines={1}>
                   {fileName || 'No file selected'}
                 </Text>
-                <Text style={[styles.fileSub, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={1}>
-                  {attachmentUrl ? 'Uploaded and ready to send' : 'You can attach screenshots, documents, or proofs'}
+                <Text style={[styles.fileSub, { fontFamily: t.typography.fontFamily.medium }]} numberOfLines={2}>
+                  {attachmentUrl ? 'Uploaded and ready to send with this inquiry' : 'You can attach screenshots, documents, or proofs if support needs more detail'}
                 </Text>
               </View>
             </View>
@@ -278,7 +414,13 @@ export default function CreateInquiryScreen({ navigation, route }: Props) {
           </View>
 
           <View style={styles.submitWrap}>
-            <Button size="sm" title={submitting ? 'Submitting...' : 'Submit inquiry'} onPress={submit} loading={submitting} />
+            <Button
+              size="sm"
+              title={submitting ? 'Submitting...' : managedMode ? 'Send inquiry as managed candidate' : 'Send inquiry'}
+              onPress={submit}
+              loading={submitting}
+              disabled={!canUseJobInquiryFlow}
+            />
           </View>
         </Animated.View>
       </ScrollView>
@@ -404,7 +546,7 @@ const styles = StyleSheet.create({
   heroMain: { marginTop: 16, flexDirection: 'row', gap: 14 },
   heroMainCompact: { gap: 10 },
   heroCopyBlock: { flex: 1 },
-  heroTitle: { color: '#153375', fontSize: 22, lineHeight: 26, fontWeight: '900', maxWidth: 228 },
+  heroTitleText: { color: '#153375', fontSize: 22, lineHeight: 26, fontWeight: '900', maxWidth: 236 },
   heroBody: { marginTop: 8, color: '#5D7096', fontSize: 11, lineHeight: 16, fontWeight: '700', maxWidth: 236 },
   heroStatsRow: { marginTop: 14, flexDirection: 'row', gap: 9 },
   heroStatCard: {
@@ -497,6 +639,75 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   heroFooterChipText: { color: '#118D4C', fontSize: 9, lineHeight: 11, fontWeight: '800' },
+  guardCard: {
+    borderRadius: 22,
+    backgroundColor: '#FFF8EC',
+    borderWidth: 1,
+    borderColor: '#F2D6A2',
+    padding: 14,
+    marginBottom: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  guardIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F0DAB1',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  guardCopy: { flex: 1 },
+  guardTitle: { color: '#9D5F0D', fontSize: 14, lineHeight: 17, fontWeight: '900' },
+  guardText: { marginTop: 5, color: '#7D6440', fontSize: 11, lineHeight: 16, fontWeight: '700' },
+  switchCandidateBtn: {
+    marginTop: 10,
+    minHeight: 58,
+    borderRadius: 18,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    backgroundColor: '#145DCC',
+    borderWidth: 1,
+    borderColor: '#145DCC',
+    alignSelf: 'stretch',
+    shadowColor: '#145DCC',
+    shadowOpacity: 0.24,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 5,
+  },
+  switchCandidateBtnWarm: {
+    borderColor: '#D18414',
+    backgroundColor: '#D18414',
+    shadowColor: '#D18414',
+  },
+  switchCandidateMain: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  switchCandidateIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  switchCandidateIconWrapWarm: {
+    borderColor: 'rgba(255,255,255,0.24)',
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  switchCandidateCopy: { flex: 1 },
+  switchCandidateText: { color: '#FFFFFF', fontSize: 12, lineHeight: 15, fontWeight: '800' },
+  switchCandidateTextWarm: { color: '#FFFFFF' },
+  switchCandidateSubtext: { marginTop: 2, color: 'rgba(255,255,255,0.82)', fontSize: 10, lineHeight: 13, fontWeight: '700' },
+  switchCandidateSubtextWarm: { color: 'rgba(255,248,235,0.92)' },
   formCard: {
     borderRadius: 22,
     backgroundColor: 'rgba(249,251,255,0.96)',
@@ -530,6 +741,42 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   sectionChipText: { color: '#1D5FD2', fontSize: 9, lineHeight: 11, fontWeight: '800' },
+  contextCard: {
+    marginBottom: 12,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#D6E0F4',
+    backgroundColor: '#F4F8FF',
+    padding: 12,
+    gap: 10,
+  },
+  contextRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
+  contextIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: '#EAF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  contextCopy: { flex: 1 },
+  contextTitle: { color: '#173271', fontSize: 14, lineHeight: 17, fontWeight: '900' },
+  contextText: { marginTop: 4, color: '#5E7198', fontSize: 10, lineHeight: 15, fontWeight: '700' },
+  contextMetaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  contextMetaChip: {
+    minHeight: 30,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#D6E0F4',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    maxWidth: '100%',
+  },
+  contextMetaText: { color: '#28508E', fontSize: 9, lineHeight: 11, fontWeight: '800', flexShrink: 1 },
+  fieldHint: { marginTop: -6, marginBottom: 10, color: '#7588AD', fontSize: 10, lineHeight: 14, fontWeight: '700' },
   attachCard: {
     marginTop: 6,
     borderRadius: 16,

@@ -7,6 +7,7 @@ import { Feather } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { InvoicesService } from '../../api/services';
+import ManagedViewBanner from '../../components/managed/ManagedViewBanner';
 import { getToken } from '../../utils/tokenStorage';
 import { useAuthStore } from '../../context/authStore';
 import { API_BASE_URL } from '../../config/api';
@@ -15,6 +16,7 @@ import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { InvoicesStackParamList } from '../../navigation/app/AppNavigator';
 import { formatDate, money } from '../../utils/format';
 import { useTheme } from '../../theme/ThemeProvider';
+import { getManagedCandidateId, getManagedCandidateName, isManagedViewActive } from '../../utils/managedView';
 import { PageDecor } from '../../components/ui';
 import { downloadResolvedRemoteFile } from '../../utils/remoteFileDownload';
 
@@ -143,9 +145,13 @@ type Props = NativeStackScreenProps<InvoicesStackParamList, 'InvoiceDetails'>;
 export default function InvoiceDetailsScreen({ navigation, route }: Props) {
   const t = useTheme();
   const { width } = useWindowDimensions();
+  const user = useAuthStore((s) => s.user);
   const { invoiceId, invoice: initialInvoice } = route.params;
   const [inv, setInv] = useState<Invoice | null>(initialInvoice || null);
   const [loading, setLoading] = useState(true);
+  const managedViewActive = useMemo(() => isManagedViewActive(user), [user]);
+  const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
+  const managedCandidateName = useMemo(() => getManagedCandidateName(user), [user]);
 
   const heroEntrance = useRef(new Animated.Value(0)).current;
   const sectionsEntrance = useRef(new Animated.Value(0)).current;
@@ -158,7 +164,7 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
     (async () => {
       setLoading(true);
       try {
-        const i = await InvoicesService.get(invoiceId);
+        const i = await InvoicesService.get(invoiceId, managedCandidateId ? { managedCandidateId } : undefined);
         setInv((prev) => ({ ...(prev || {}), ...(i || {}) }));
       } catch {
         setInv((prev) => prev || null);
@@ -166,7 +172,7 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
         setLoading(false);
       }
     })();
-  }, [invoiceId]);
+  }, [invoiceId, managedCandidateId]);
 
   useEffect(() => {
     Animated.parallel([
@@ -268,7 +274,7 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
         }
       };
 
-      const res = await InvoicesService.getPdfUrl(invoiceId);
+      const res = await InvoicesService.getPdfUrl(invoiceId, managedCandidateId ? { managedCandidateId } : undefined);
       const directBase64 = String((res as any)?.base64 || '').trim();
       if (directBase64) {
         const cacheDir = `${(FileSystem as any).cacheDirectory || ''}invoices`;
@@ -291,7 +297,7 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
       }
       const candidates = Array.from(
         new Set(
-          [...(Array.isArray((res as any)?.candidates) ? (res as any).candidates : []), (res as any)?.url]
+          [...(Array.isArray((res as any)?.candidates) ? (res as any).candidates : []), (res as any)?.url, inv?.pdfUrl]
             .map((item) => String(item || '').trim())
             .filter((item) => item && isRemoteOrRelativeUrl(item))
         )
@@ -321,14 +327,15 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
 
   const onBack = () => {
     if (navigation.canGoBack()) navigation.goBack();
-    else navigation.getParent()?.navigate('Bills' as never);
+    else navigation.getParent()?.navigate('Analytics' as never);
   };
 
   const invoiceTitle = inv?.invoiceNumber ? `Invoice #${inv.invoiceNumber}` : loading ? 'Loading...' : 'Invoice';
   const dueText = `Due ${formatDate(inv?.dueDate) || '-'}`;
-  const totalText = money(inv?.total, inv?.currency || 'USD');
+  const totalText = money(inv?.total ?? inv?.grandTotal, inv?.currency || 'USD');
   const statusText = String(inv?.status || (loading ? 'Loading...' : 'Sent'));
-  const itemCount = Array.isArray(inv?.items) ? inv.items.length : 0;
+  const customerName = String(inv?.customer?.name || '').trim();
+  const balanceDueText = money(inv?.balanceDue, inv?.currency || 'USD');
   const hasProof = Boolean(
     (inv as any)?.hasPaymentProof ||
       (inv as any)?.reference ||
@@ -370,9 +377,9 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
       { label: 'Invoice No', value: inv?.invoiceNumber || '-', icon: 'hash', tone: 'blue' as const },
       { label: 'Status', value: statusText, icon: 'activity', tone: 'amber' as const },
       { label: 'Currency', value: inv?.currency || 'USD', icon: 'credit-card', tone: 'mint' as const },
-      { label: 'Items', value: String(itemCount), icon: 'layers', tone: 'lavender' as const },
+      { label: 'Balance', value: balanceDueText || '-', icon: 'layers', tone: 'lavender' as const },
     ],
-    [inv?.currency, inv?.invoiceNumber, itemCount, statusText]
+    [balanceDueText, inv?.currency, inv?.invoiceNumber, statusText]
   );
 
   return (
@@ -380,6 +387,12 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
       <PageDecor />
       <SafeAreaView style={styles.safe}>
         <ScrollView style={styles.scroll} contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+          {managedViewActive ? (
+            <ManagedViewBanner
+              candidateName={managedCandidateName}
+              subtitle="This invoice is loaded for the active managed candidate."
+            />
+          ) : null}
           <Animated.View style={[styles.topBar, { opacity: heroEntrance, transform: [{ translateY: heroY }] }]}>
             <Pressable onPress={onBack} style={({ pressed }) => [styles.backBtn, pressed && styles.pressed]}>
               <Feather name="arrow-left" size={20} color="#1A347F" />
@@ -402,11 +415,11 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
             <View style={styles.heroHeaderRow}>
               <View style={styles.heroPill}>
                 <Feather name="file-text" size={13} color="#155B9F" />
-                <Text style={[styles.heroPillText, { fontFamily: t.typography.fontFamily.bold }]}>Settlement sheet</Text>
+                <Text style={[styles.heroPillText, { fontFamily: t.typography.fontFamily.bold }]}>{managedViewActive ? 'Candidate invoice' : 'Settlement sheet'}</Text>
               </View>
               <View style={styles.heroSignal}>
                 <View style={styles.heroSignalDot} />
-                <Text style={[styles.heroSignalText, { fontFamily: t.typography.fontFamily.bold }]}>Ready record</Text>
+                <Text style={[styles.heroSignalText, { fontFamily: t.typography.fontFamily.bold }]}>{managedViewActive ? 'Candidate scope' : 'Ready record'}</Text>
               </View>
             </View>
 
@@ -415,7 +428,11 @@ export default function InvoiceDetailsScreen({ navigation, route }: Props) {
                 <Text style={[styles.heroTitle, { fontFamily: t.typography.fontFamily.bold }]} numberOfLines={2}>
                   {invoiceTitle}
                 </Text>
-                <Text style={[styles.heroBody, { fontFamily: t.typography.fontFamily.medium }]}>{dueText}</Text>
+                <Text style={[styles.heroBody, { fontFamily: t.typography.fontFamily.medium }]}>
+                  {managedViewActive
+                    ? `${customerName || managedCandidateName} billing record. ${dueText}`
+                    : dueText}
+                </Text>
 
                 <View style={styles.totalCard}>
                   <Text style={[styles.totalLabel, { fontFamily: t.typography.fontFamily.medium }]}>Total amount</Text>

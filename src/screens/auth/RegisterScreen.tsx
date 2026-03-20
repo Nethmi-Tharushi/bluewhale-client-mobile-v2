@@ -13,15 +13,15 @@ import { clearSavedJobs } from '../../utils/savedJobsStorage';
 import { PageDecor } from '../../components/ui';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
-type FocusField = 'name' | 'email' | 'phone' | 'password' | null;
+type FocusField = 'companyName' | 'contactPerson' | 'email' | 'phone' | 'companyAddress' | 'password' | null;
 
 const HIGHLIGHTS = [
-  { icon: 'user-plus' as const, label: 'Build your profile' },
-  { icon: 'briefcase' as const, label: 'Apply faster' },
-  { icon: 'smartphone' as const, label: 'Mobile-first flow' },
+  { icon: 'users' as const, label: 'Managed candidates' },
+  { icon: 'message-square' as const, label: 'Admin coordination' },
+  { icon: 'bar-chart-2' as const, label: 'Agent analytics' },
 ];
 
-const PROFILE_STEPS = ['Profile basics', 'Contact details', 'Secure access'];
+const PROFILE_STEPS = ['Company profile', 'Contact details', 'Secure access'];
 
 const STAR_NODES = [
   { top: 28, left: 42, size: 10 },
@@ -35,12 +35,16 @@ export default function RegisterScreen({ navigation }: Props) {
   const isAndroid = Platform.OS === 'android';
   const { height, width } = useWindowDimensions();
   const signIn = useAuthStore((s) => s.signIn);
+  const contactPersonRef = useRef<TextInput>(null);
   const emailRef = useRef<TextInput>(null);
   const phoneRef = useRef<TextInput>(null);
+  const companyAddressRef = useRef<TextInput>(null);
   const passwordRef = useRef<TextInput>(null);
-  const [name, setName] = useState('');
+  const [companyName, setCompanyName] = useState('');
+  const [contactPerson, setContactPerson] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [companyAddress, setCompanyAddress] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -135,8 +139,8 @@ export default function RegisterScreen({ navigation }: Props) {
   }, [cardEntrance, cardFloat, chipAnimations, glowDrift, heroEntrance, nodePulse, orbFloat, progressLoop, shimmerTranslate]);
 
   const onRegister = async () => {
-    if (!name.trim() || !email.trim() || password.length < 6) {
-      Alert.alert('Invalid details', 'Please enter name, email and a password (min 6 characters).');
+    if (!companyName.trim() || !contactPerson.trim() || !companyAddress.trim() || !email.trim() || password.length < 6) {
+      Alert.alert('Invalid details', 'Please enter company details, contact email, and a password with at least 6 characters.');
       return;
     }
     const normalizedPhone = normalizeUaeMobile(phone);
@@ -147,11 +151,14 @@ export default function RegisterScreen({ navigation }: Props) {
     setLoading(true);
     try {
       const res = await AuthService.signup({
-        name: name.trim(),
+        name: contactPerson.trim(),
         email: email.trim(),
         phone: normalizedPhone || undefined,
         password,
-        userType: 'candidate',
+        userType: 'agent',
+        companyName: companyName.trim(),
+        companyAddress: companyAddress.trim(),
+        contactPerson: contactPerson.trim(),
       });
       const token = (res as any)?.token || (res as any)?.accessToken;
       const rawUser = (res as any)?.user || (res as any);
@@ -159,16 +166,24 @@ export default function RegisterScreen({ navigation }: Props) {
         rawUser && typeof rawUser === 'object'
           ? {
               ...rawUser,
-              name: String((rawUser as any)?.name || name.trim()).trim(),
+              name: String((rawUser as any)?.name || contactPerson.trim()).trim(),
+              fullName: String((rawUser as any)?.fullName || contactPerson.trim()).trim(),
               email: String((rawUser as any)?.email || email.trim()).trim(),
               phone: String((rawUser as any)?.phone || normalizedPhone || '').trim() || undefined,
-              userType: (rawUser as any)?.userType || (rawUser as any)?.role || 'candidate',
+              companyName: String((rawUser as any)?.companyName || companyName.trim()).trim(),
+              companyAddress: String((rawUser as any)?.companyAddress || companyAddress.trim()).trim(),
+              contactPerson: String((rawUser as any)?.contactPerson || contactPerson.trim()).trim(),
+              userType: (rawUser as any)?.userType || (rawUser as any)?.role || 'agent',
             }
           : {
-              name: name.trim(),
+              name: contactPerson.trim(),
+              fullName: contactPerson.trim(),
               email: email.trim(),
               phone: normalizedPhone || undefined,
-              userType: 'candidate',
+              companyName: companyName.trim(),
+              companyAddress: companyAddress.trim(),
+              contactPerson: contactPerson.trim(),
+              userType: 'agent',
             };
       if (!token) throw new Error('Token not found in response.');
       await clearSavedJobs(String((user as any)?._id || (user as any)?.id || (user as any)?.email || (user as any)?.phone || email.trim()).trim() || null);
@@ -297,7 +312,7 @@ export default function RegisterScreen({ navigation }: Props) {
 
               <View style={[styles.eyebrow, { backgroundColor: t.isDark ? 'rgba(17, 29, 52, 0.86)' : isAndroid ? '#FFFFFF' : 'rgba(255,255,255,0.74)', borderColor: t.colors.border }]}>
                 <Feather name="star" size={14} color={t.colors.secondary} />
-                <Text style={[styles.eyebrowText, { color: t.colors.primary }]}>Candidate signup</Text>
+                <Text style={[styles.eyebrowText, { color: t.colors.primary }]}>Agent signup</Text>
               </View>
 
               <View style={styles.visualStage}>
@@ -324,13 +339,13 @@ export default function RegisterScreen({ navigation }: Props) {
                 </Animated.View>
               </View>
 
-              <Text style={[styles.title, { color: t.colors.primary }, compact && styles.titleCompact]}>Create your account</Text>
-              <Text style={[styles.subtitle, { color: t.colors.grayMutedDark }, compact && styles.subtitleCompact]}>Set up your profile and apply faster.</Text>
+              <Text style={[styles.title, { color: t.colors.primary }, compact && styles.titleCompact]}>Create your agency workspace</Text>
+              <Text style={[styles.subtitle, { color: t.colors.grayMutedDark }, compact && styles.subtitleCompact]}>Set up your company profile and start managing candidates from mobile.</Text>
 
               <View style={[styles.progressPanel, { backgroundColor: t.isDark ? 'rgba(17, 29, 52, 0.82)' : isAndroid ? '#FFFFFF' : 'rgba(255,255,255,0.72)', borderColor: t.colors.border }]}>
                 <View style={styles.progressHeaderRow}>
                   <Text style={[styles.progressLabel, { color: t.colors.primary }]}>Setup flow</Text>
-                  <Text style={[styles.progressMeta, { color: t.colors.grayMutedDark }]}>4 fields</Text>
+                  <Text style={[styles.progressMeta, { color: t.colors.grayMutedDark }]}>6 fields</Text>
                 </View>
                 <View style={[styles.progressTrack, { backgroundColor: t.isDark ? 'rgba(255,255,255,0.06)' : 'rgba(15, 121, 197, 0.08)' }]}>
                   <Animated.View style={[styles.progressFill, { width: progressWidth }]}>
@@ -368,32 +383,34 @@ export default function RegisterScreen({ navigation }: Props) {
 
               <View style={styles.metricRow}>
                 <View style={[styles.metricCard, { backgroundColor: t.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.7)', borderColor: t.colors.border }]}>
-                  <Text style={[styles.metricValue, { color: t.colors.primary }]}>4</Text>
-                  <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>profile fields</Text>
+                  <Text style={[styles.metricValue, { color: t.colors.primary }]}>6</Text>
+                  <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>setup fields</Text>
                 </View>
                 <View style={[styles.metricCard, { backgroundColor: t.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.7)', borderColor: t.colors.border }]}>
                   <Text style={[styles.metricValue, { color: t.colors.primary }]}>1</Text>
-                  <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>candidate flow</Text>
+                  <Text style={[styles.metricLabel, { color: t.colors.grayMutedDark }]}>agent workspace</Text>
                 </View>
               </View>
 
               <View style={styles.cardHeader}>
                 <View style={[styles.cardBadge, { backgroundColor: t.isDark ? 'rgba(79, 113, 210, 0.2)' : 'rgba(15, 121, 197, 0.12)' }]}>
-                  <Feather name="user-plus" size={18} color={t.colors.secondary} />
+                  <Feather name="briefcase" size={18} color={t.colors.secondary} />
                 </View>
                 <View style={styles.cardHeaderCopy}>
-                  <Text style={[styles.cardTitle, { color: t.colors.text }]}>Build your profile</Text>
-                  <Text style={[styles.cardSubtitle, { color: t.colors.grayMutedDark }]}>Create a profile recruiters can review.</Text>
+                  <Text style={[styles.cardTitle, { color: t.colors.text }]}>Build your company profile</Text>
+                  <Text style={[styles.cardSubtitle, { color: t.colors.grayMutedDark }]}>Create the agent account your team will use to manage candidate workflows.</Text>
                 </View>
               </View>
 
-              {renderField({ label: 'Full name', icon: 'user', value: name, onChangeText: setName, placeholder: 'Your name', field: 'name', autoCapitalize: 'words', onSubmitEditing: () => emailRef.current?.focus() })}
-              {renderField({ label: 'Email', icon: 'mail', value: email, onChangeText: setEmail, placeholder: 'you@example.com', field: 'email', inputRef: emailRef, keyboardType: 'email-address', autoCapitalize: 'none', onSubmitEditing: () => phoneRef.current?.focus() })}
-              {renderField({ label: 'Phone (optional)', icon: 'phone', value: phone, onChangeText: (value) => setPhone(formatUaeMobileInput(value)), placeholder: UAE_PHONE_EXAMPLE, field: 'phone', inputRef: phoneRef, keyboardType: 'phone-pad', autoCapitalize: 'none', onSubmitEditing: () => passwordRef.current?.focus(), helperText: 'Use UAE phone format for contact.' })}
+              {renderField({ label: 'Company name', icon: 'briefcase', value: companyName, onChangeText: setCompanyName, placeholder: 'Your company name', field: 'companyName', autoCapitalize: 'words', onSubmitEditing: () => contactPersonRef.current?.focus() })}
+              {renderField({ label: 'Contact person', icon: 'user', value: contactPerson, onChangeText: setContactPerson, placeholder: 'Primary contact name', field: 'contactPerson', inputRef: contactPersonRef, autoCapitalize: 'words', onSubmitEditing: () => emailRef.current?.focus() })}
+              {renderField({ label: 'Email', icon: 'mail', value: email, onChangeText: setEmail, placeholder: 'company@example.com', field: 'email', inputRef: emailRef, keyboardType: 'email-address', autoCapitalize: 'none', onSubmitEditing: () => phoneRef.current?.focus() })}
+              {renderField({ label: 'Company phone (optional)', icon: 'phone', value: phone, onChangeText: (value) => setPhone(formatUaeMobileInput(value)), placeholder: UAE_PHONE_EXAMPLE, field: 'phone', inputRef: phoneRef, keyboardType: 'phone-pad', autoCapitalize: 'none', onSubmitEditing: () => companyAddressRef.current?.focus(), helperText: 'Use UAE phone format for the main company contact.' })}
+              {renderField({ label: 'Company address', icon: 'map-pin', value: companyAddress, onChangeText: setCompanyAddress, placeholder: 'Company address', field: 'companyAddress', inputRef: companyAddressRef, autoCapitalize: 'words', onSubmitEditing: () => passwordRef.current?.focus() })}
               {renderField({ label: 'Password', icon: 'lock', value: password, onChangeText: setPassword, placeholder: 'Minimum 6 characters', field: 'password', inputRef: passwordRef, secureTextEntry: true, autoCapitalize: 'none', onSubmitEditing: onRegister })}
 
               <View style={styles.metaRow}>
-                <Text style={[styles.metaText, { color: t.colors.grayMutedDark }]}>You are creating a candidate account.</Text>
+                <Text style={[styles.metaText, { color: t.colors.grayMutedDark }]}>You are creating an agent account with company details.</Text>
                 <Pressable onPress={() => navigation.navigate('Login')} hitSlop={10} style={({ pressed }) => [pressed && styles.pressed]}>
                   <Text style={[styles.metaLink, { color: t.colors.primary }]}>Back to login</Text>
                 </Pressable>
@@ -401,7 +418,7 @@ export default function RegisterScreen({ navigation }: Props) {
 
               <Pressable onPress={onRegister} disabled={loading} style={({ pressed }) => [styles.buttonPressable, pressed && styles.pressed, loading && styles.disabled]}>
                 <LinearGradient colors={t.colors.gradientButton as any} start={{ x: 0, y: 0.4 }} end={{ x: 1, y: 1 }} style={styles.primaryButton}>
-                  <Text style={styles.primaryButtonText}>{loading ? 'Creating...' : 'Create an account'}</Text>
+                  <Text style={styles.primaryButtonText}>{loading ? 'Creating...' : 'Create agent account'}</Text>
                   <View style={styles.primaryArrowWrap}>
                     <Feather name="arrow-right" size={18} color="#FFFFFF" />
                   </View>
@@ -409,11 +426,11 @@ export default function RegisterScreen({ navigation }: Props) {
               </Pressable>
 
               <Pressable onPress={() => navigation.navigate('Login')} style={({ pressed }) => [styles.secondaryButton, { borderColor: t.colors.borderStrong, backgroundColor: t.isDark ? 'rgba(255,255,255,0.04)' : 'rgba(255,255,255,0.62)' }, pressed && styles.pressed]}>
-                <Text style={[styles.secondaryButtonText, { color: t.colors.primary }]}>I already have an account</Text>
+                <Text style={[styles.secondaryButtonText, { color: t.colors.primary }]}>I already have an agent account</Text>
               </Pressable>
             </Animated.View>
 
-            <Text style={[styles.footerNote, { color: t.colors.grayMutedDark }]}>Move from setup to applications on mobile.</Text>
+            <Text style={[styles.footerNote, { color: t.colors.grayMutedDark }]}>Set up once, then manage candidates, chats, and activity from your phone.</Text>
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>

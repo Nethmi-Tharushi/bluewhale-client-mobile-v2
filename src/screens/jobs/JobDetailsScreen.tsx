@@ -4,14 +4,14 @@ import { Feather } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import { ApplicationsService, JobsService } from '../../api/services';
+import { ApplicationsService, JobsService, WishlistService } from '../../api/services';
 import type { Job } from '../../types/models';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { JobsStackParamList } from '../../navigation/app/AppNavigator';
 import { useTheme } from '../../theme/ThemeProvider';
-import { getSavedJobs, setSavedJobs } from '../../utils/savedJobsStorage';
 import { useAuthStore } from '../../context/authStore';
 import { PageDecor } from '../../components/ui';
+import { getManagedAppliedJobIds, getManagedCandidateId, isManagedViewActive } from '../../utils/managedView';
 
 type Props = NativeStackScreenProps<JobsStackParamList, 'JobDetails'>;
 
@@ -104,13 +104,17 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
   const { height } = useWindowDimensions();
   const { jobId } = route.params;
   const user = useAuthStore((s) => s.user);
-  const token = useAuthStore((s) => s.token);
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
   const [saved, setSaved] = useState(false);
   const [alreadyApplied, setAlreadyApplied] = useState(false);
-  const userId = String((user as any)?._id || (user as any)?.id || (user as any)?.email || (user as any)?.phone || token || '').trim() || 'guest';
   const compact = height < 760;
+  const managedCandidateId = useMemo(() => getManagedCandidateId(user), [user]);
+  const managedAppliedJobIds = useMemo(() => getManagedAppliedJobIds(user), [user]);
+  const managedViewActive = useMemo(() => isManagedViewActive(user), [user]);
+  const role = String(user?.userType || user?.role || '').toLowerCase();
+  const agentMode = role.includes('agent');
+  const canCreateInquiry = managedViewActive || !agentMode;
 
   const heroEntrance = useRef(new Animated.Value(0)).current;
   const metricsEntrance = useRef(new Animated.Value(0)).current;
@@ -118,7 +122,6 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
   const heroFloat = useRef(new Animated.Value(0)).current;
   const shimmerTranslate = useRef(new Animated.Value(0)).current;
   const chipFloat = useRef(new Animated.Value(0)).current;
-  const ctaPulse = useRef(new Animated.Value(1)).current;
   const routeProgress = useRef(new Animated.Value(0)).current;
   const beaconPulse = useRef(new Animated.Value(0)).current;
 
@@ -134,32 +137,32 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
         setLoading(false);
       }
     })();
-  }, [jobId]);
+  }, [jobId, managedAppliedJobIds, managedCandidateId, managedViewActive]);
 
   useEffect(() => {
     (async () => {
       try {
-        const all = await getSavedJobs(userId);
-        const exists = all.some((j: any) => String(j?._id || j?.id || '') === String(jobId));
+        const exists = await WishlistService.check(String(jobId), managedCandidateId ? { managedCandidateId } : undefined);
         setSaved(exists);
       } catch {
         setSaved(false);
       }
     })();
-  }, [jobId, userId]);
+  }, [jobId, managedCandidateId]);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await ApplicationsService.my();
+        const res = await ApplicationsService.my(managedCandidateId ? { candidateId: managedCandidateId, managedCandidateId } : undefined);
         const arr: any[] = Array.isArray(res) ? res : (res as any)?.applications || (res as any)?.items || [];
         const appliedIds = arr
           .map((a: any) => a?.job?._id || a?.job?.id || a?.jobId || a?.job)
           .map((x: any) => String(x || '').trim())
           .filter(Boolean);
-        setAlreadyApplied(appliedIds.includes(String(jobId)));
+        const localIds = managedViewActive ? managedAppliedJobIds : [];
+        setAlreadyApplied(new Set([...localIds, ...appliedIds]).has(String(jobId)));
       } catch {
-        setAlreadyApplied(false);
+        setAlreadyApplied(managedViewActive ? managedAppliedJobIds.includes(String(jobId)) : false);
       }
     })();
   }, [jobId]);
@@ -209,12 +212,6 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
       ),
       Animated.loop(
         Animated.sequence([
-          Animated.timing(ctaPulse, { toValue: 1.02, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-          Animated.timing(ctaPulse, { toValue: 1, duration: 1400, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
-        ]),
-      ),
-      Animated.loop(
-        Animated.sequence([
           Animated.timing(routeProgress, { toValue: 1, duration: 2800, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
           Animated.timing(routeProgress, { toValue: 0, duration: 0, useNativeDriver: true }),
         ]),
@@ -229,7 +226,7 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
 
     loops.forEach((loop) => loop.start());
     return () => loops.forEach((loop) => loop.stop());
-  }, [beaconPulse, ctaPulse, chipFloat, heroEntrance, heroFloat, metricsEntrance, routeProgress, sectionsEntrance, shimmerTranslate]);
+  }, [beaconPulse, chipFloat, heroEntrance, heroFloat, metricsEntrance, routeProgress, sectionsEntrance, shimmerTranslate]);
 
   const title = pickString(job, ['title', 'jobTitle', 'position'], loading ? 'Loading...' : 'Job Details');
   const company = pickString(job, ['company', 'companyName', 'employer', 'organization'], 'Company');
@@ -324,7 +321,6 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
     return /^https?:\/\//i.test(c) ? c : `https://${c}`;
   }, [job]);
 
-  const onApply = () => navigation.navigate('ApplyJob', { jobId });
   const onAsk = () =>
     (navigation.getParent() as any)?.navigate({
       name: 'Inquiries',
@@ -334,6 +330,7 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
       },
       merge: true,
     });
+  const askCtaLabel = managedViewActive ? 'Make inquiry as candidate' : 'Ask a question';
   const onCopyJobId = async () => {
     if (!displayJobId || displayJobId === 'N/A') return;
     try {
@@ -377,12 +374,13 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
   const onSave = async () => {
     if (!job) return;
     try {
-      const all = await getSavedJobs(userId);
-      const exists = all.some((j: any) => String(j?._id || j?.id || '') === String(jobId));
-      const next = exists ? all.filter((j: any) => String(j?._id || j?.id || '') !== String(jobId)) : [job, ...all];
-      await setSavedJobs(userId, next);
-      setSaved(!exists);
-      Alert.alert(exists ? 'Removed' : 'Saved', exists ? 'Job removed from saved jobs.' : 'Job added to saved jobs.');
+      if (saved) {
+        await WishlistService.remove(String(jobId), managedCandidateId ? { managedCandidateId } : undefined);
+      } else {
+        await WishlistService.save(String(jobId), managedCandidateId ? { managedCandidateId } : undefined);
+      }
+      setSaved(!saved);
+      Alert.alert(saved ? 'Removed' : 'Saved', saved ? 'Job removed from saved jobs.' : 'Job added to saved jobs.');
     } catch (e: any) {
       Alert.alert('Failed', e?.userMessage || e?.message || 'Please try again');
     }
@@ -713,24 +711,13 @@ export default function JobDetailsScreen({ navigation, route }: Props) {
           </Animated.View>
         </ScrollView>
 
-        <Animated.View style={[styles.bottomCard, { bottom: 104 + insets.bottom, transform: [{ scale: ctaPulse }] }]}>
-          <Pressable onPress={onApply} disabled={alreadyApplied} style={({ pressed }) => [pressed && !alreadyApplied && { opacity: 0.95 }]}>
-            {alreadyApplied ? (
-              <View style={styles.appliedBtn}>
-                <Feather name="check-circle" size={16} color="#119A4F" />
-                <Text style={[styles.appliedText, { fontFamily: t.typography.fontFamily.bold }]}>Applied</Text>
-              </View>
-            ) : (
-              <LinearGradient colors={['#1B3890', '#0F79C5']} start={{ x: 0, y: 0.5 }} end={{ x: 1, y: 0.5 }} style={styles.applyBtn}>
-                <Feather name="send" size={16} color="#FFFFFF" />
-                <Text style={[styles.applyText, { fontFamily: t.typography.fontFamily.bold }]}>Apply Now</Text>
-              </LinearGradient>
-            )}
-          </Pressable>
-          <Pressable onPress={onAsk}>
-            <Text style={[styles.askText, { fontFamily: t.typography.fontFamily.bold }]}>Ask a question</Text>
-          </Pressable>
-        </Animated.View>
+        {canCreateInquiry ? (
+          <Animated.View style={[styles.bottomCard, { bottom: 112 + insets.bottom }]}>
+            <Pressable onPress={onAsk} style={({ pressed }) => [styles.askBtn, pressed && styles.pressed]}>
+              <Text style={[styles.askText, { fontFamily: t.typography.fontFamily.bold }]}>{askCtaLabel}</Text>
+            </Pressable>
+          </Animated.View>
+        ) : null}
       </SafeAreaView>
     </LinearGradient>
   );
@@ -1637,39 +1624,20 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     elevation: 7,
   },
-  applyBtn: {
-    height: 42,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 7,
-  },
-  applyText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: '800',
-  },
-  appliedBtn: {
-    height: 42,
+  askBtn: {
+    minHeight: 42,
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#33C16D',
-    backgroundColor: '#CDEEDB',
+    borderColor: '#C9D8F4',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 7,
+    paddingHorizontal: 14,
   },
-  appliedText: {
-    color: '#128A4A',
-    fontSize: 16,
-    lineHeight: 20,
-    fontWeight: '800',
+  pressed: {
+    opacity: 0.88,
   },
   askText: {
-    marginTop: 10,
     textAlign: 'center',
     color: '#1A3E8D',
     fontSize: 15,

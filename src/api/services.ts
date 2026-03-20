@@ -1,9 +1,10 @@
 import * as FileSystem from 'expo-file-system/legacy';
+import dayjs from 'dayjs';
 import { api, ensureApiReady, isRetryableRequestError } from './client';
 import { Endpoints } from './endpoints';
 import { getToken } from '../utils/tokenStorage';
 import { ensureUploadBatchWithinLimit, ensureUploadSizeWithinLimit } from '../utils/uploadValidation';
-import type { Application, ChatAdmin, ChatMessage, DocumentGroups, Inquiry, Invoice, Job, Meeting, Task, TaskFile, UserDocument } from '../types/models';
+import type { AgentAnalyticsCategoryBreakdown, AgentAnalyticsDashboard, AgentAnalyticsTrendPoint, Application, ChatAdmin, ChatMessage, DocumentGroups, Inquiry, Invoice, Job, ManagedCandidate, Meeting, SavedJobEntry, Task, TaskFile, UserDocument, WishlistStats } from '../types/models';
 
 type UploadableFile = {
   uri: string;
@@ -327,6 +328,137 @@ const extractMeetings = (payload: any): Meeting[] => {
   return [];
 };
 
+const normalizeMeetingPerson = (value: any) => {
+  if (!value || typeof value !== 'object') return undefined;
+  return {
+    ...value,
+    _id: value?._id ? String(value._id) : value?.id ? String(value.id) : null,
+    name: String(value?.name || value?.fullName || '').trim() || undefined,
+    email: String(value?.email || '').trim() || null,
+    phone: String(value?.phone || '').trim() || null,
+    userType: String(value?.userType || '').trim() || null,
+  };
+};
+
+const normalizeMeeting = (meeting: any): Meeting => {
+  if (!meeting || typeof meeting !== 'object') return meeting as Meeting;
+
+  const normalized: any = { ...meeting };
+  if (!normalized._id && normalized.id) normalized._id = String(normalized.id);
+
+  const scheduledAt = String(
+    normalized?.scheduledAt ||
+      normalized?.dateTime ||
+      normalized?.startTime ||
+      normalized?.meetingDateTime ||
+      ''
+  ).trim();
+
+  if (scheduledAt) normalized.scheduledAt = scheduledAt;
+
+  if (!normalized.date && scheduledAt && dayjs(scheduledAt).isValid()) {
+    normalized.date = dayjs(scheduledAt).format('YYYY-MM-DD');
+  }
+
+  if (!normalized.time && scheduledAt && dayjs(scheduledAt).isValid()) {
+    normalized.time = dayjs(scheduledAt).format('hh:mm A');
+  }
+
+  normalized.title = String(normalized?.title || '').trim() || undefined;
+  normalized.status = String(normalized?.status || '').trim() || undefined;
+  normalized.locationType = String(normalized?.locationType || '').trim() || undefined;
+  normalized.link = String(normalized?.link || '').trim() || null;
+  normalized.location = String(normalized?.location || '').trim() || null;
+  normalized.notes = String(normalized?.notes || '').trim() || '';
+  normalized.clientName = String(normalized?.clientName || '').trim() || null;
+  normalized.candidateType = String(normalized?.candidateType || '').trim() || undefined;
+  normalized.managedCandidateId = String(normalized?.managedCandidateId || '').trim() || null;
+  normalized.candidate = normalizeMeetingPerson(normalized?.candidate);
+  normalized.salesAdmin = normalizeMeetingPerson(normalized?.salesAdmin);
+  normalized.mainAdmin = normalizeMeetingPerson(normalized?.mainAdmin);
+  normalized.agent = normalizeMeetingPerson(normalized?.agent);
+  normalized.participants = Array.isArray(normalized?.participants)
+    ? normalized.participants.map((item: any) => String(item || '').trim()).filter(Boolean)
+    : [];
+
+  return normalized as Meeting;
+};
+
+const looksLikeMeeting = (value: any) =>
+  !!value &&
+  typeof value === 'object' &&
+  (!!value._id ||
+    !!value.title ||
+    !!value.scheduledAt ||
+    !!value.date ||
+    !!value.time ||
+    !!value.locationType ||
+    Array.isArray(value.participants));
+
+const extractMeeting = (payload: any): Meeting | null => {
+  if (!payload) return null;
+  if (looksLikeMeeting(payload)) return payload as Meeting;
+  if (typeof payload !== 'object') return null;
+
+  const directKeys = ['meeting', 'item', 'data', 'result', 'doc'];
+  for (const key of directKeys) {
+    const value = (payload as any)?.[key];
+    if (looksLikeMeeting(value)) return value as Meeting;
+  }
+
+  for (const value of Object.values(payload)) {
+    const found = extractMeeting(value);
+    if (found) return found;
+  }
+
+  return null;
+};
+
+const normalizeWishlistJob = (item: any): SavedJobEntry => {
+  const job = item?.job && typeof item.job === 'object' ? item.job : item;
+  return {
+    ...(item && typeof item === 'object' ? item : {}),
+    _id: String(item?._id || item?.id || job?._id || job?.id || ''),
+    id: String(item?.id || item?._id || job?.id || job?._id || ''),
+    savedAt: String(item?.savedAt || item?.createdAt || '').trim() || undefined,
+    job: job && typeof job === 'object' ? (job as Job) : null,
+  };
+};
+
+const extractWishlistJobs = (payload: any): SavedJobEntry[] => {
+  if (Array.isArray(payload)) return payload.map(normalizeWishlistJob).filter((item) => !!item?.job);
+  if (!payload || typeof payload !== 'object') return [];
+
+  const directKeys = ['wishlist', 'savedJobs', 'items', 'rows', 'results', 'data'];
+  for (const key of directKeys) {
+    const value = (payload as any)?.[key];
+    if (Array.isArray(value)) return value.map(normalizeWishlistJob).filter((item) => !!item?.job);
+  }
+
+  for (const value of Object.values(payload)) {
+    if (Array.isArray(value)) return value.map(normalizeWishlistJob).filter((item) => !!item?.job);
+    if (value && typeof value === 'object') {
+      const nested = extractWishlistJobs(value);
+      if (nested.length) return nested;
+    }
+  }
+
+  return [];
+};
+
+const normalizeWishlistStats = (payload: any): WishlistStats => {
+  const source = payload?.stats && typeof payload.stats === 'object' ? payload.stats : payload;
+  if (!source || typeof source !== 'object') return {};
+  return {
+    ...source,
+    totalSaved: Number(source?.totalSaved ?? source?.count ?? 0) || 0,
+    expiringThisWeek: Number(source?.expiringThisWeek ?? source?.expiringSoon ?? 0) || 0,
+    recentlySaved: Number(source?.recentlySaved ?? source?.savedThisWeek ?? 0) || 0,
+    byType: Array.isArray(source?.byType) ? source.byType : [],
+    byCountry: Array.isArray(source?.byCountry) ? source.byCountry : [],
+  };
+};
+
 const emptyDocumentGroups = (): DocumentGroups => ({
   photo: [],
   passport: [],
@@ -348,6 +480,60 @@ const normalizeDocumentGroups = (payload: any): DocumentGroups => {
   });
 
   return grouped;
+};
+
+const normalizeManagedCandidate = (candidate: any): ManagedCandidate => {
+  if (!candidate || typeof candidate !== 'object') return candidate as ManagedCandidate;
+
+  const socialNetworks = candidate?.socialNetworks && typeof candidate.socialNetworks === 'object'
+    ? candidate.socialNetworks
+    : {
+        linkedin: candidate?.linkedin,
+        github: candidate?.github,
+      };
+
+  return {
+    ...candidate,
+    _id: String(candidate?._id || candidate?.id || ''),
+    categories: Array.isArray(candidate?.categories)
+      ? candidate.categories
+      : String(candidate?.categories || '')
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean),
+    skills: Array.isArray(candidate?.skills)
+      ? candidate.skills
+      : String(candidate?.skills || '')
+          .split(',')
+          .map((item) => item.trim())
+          .filter(Boolean),
+    documents: Array.isArray(candidate?.documents) ? candidate.documents : [],
+    inquiries: Array.isArray(candidate?.inquiries) ? candidate.inquiries : [],
+    appliedJobs: Array.isArray(candidate?.appliedJobs) ? candidate.appliedJobs : [],
+    savedJobs: Array.isArray(candidate?.savedJobs) ? candidate.savedJobs : [],
+    socialNetworks,
+  } as ManagedCandidate;
+};
+
+const extractManagedCandidates = (payload: any): ManagedCandidate[] => {
+  if (Array.isArray(payload)) return payload.map(normalizeManagedCandidate).filter((item) => !!item?._id);
+  if (!payload || typeof payload !== 'object') return [];
+
+  const directKeys = ['candidates', 'managedCandidates', 'items', 'rows', 'results', 'data'];
+  for (const key of directKeys) {
+    const value = (payload as any)?.[key];
+    if (Array.isArray(value)) return value.map(normalizeManagedCandidate).filter((item) => !!item?._id);
+  }
+
+  for (const value of Object.values(payload)) {
+    if (Array.isArray(value)) return value.map(normalizeManagedCandidate).filter((item) => !!item?._id);
+    if (value && typeof value === 'object') {
+      const nested = extractManagedCandidates(value);
+      if (nested.length) return nested;
+    }
+  }
+
+  return [];
 };
 
 const extractTaskFiles = (payload: any): TaskFile[] => {
@@ -390,8 +576,33 @@ const normalizeInvoice = (inv: any): Invoice => {
   if (!normalized._id && normalized.id) normalized._id = normalized.id;
   if (!normalized.invoiceNumber) normalized.invoiceNumber = normalized.invoiceNo || normalized.number || normalized.invoice_number;
   if (normalized.total === undefined) normalized.total = normalized.amount ?? normalized.grandTotal ?? normalized.totalAmount;
+  if (normalized.grandTotal === undefined && normalized.total !== undefined) normalized.grandTotal = normalized.total;
+  if (normalized.balanceDue === undefined) normalized.balanceDue = normalized.balance ?? normalized.remainingBalance ?? normalized.totalDue;
+  if (normalized.paidAmount === undefined) normalized.paidAmount = normalized.amountPaid ?? normalized.paid ?? 0;
+  if (!normalized.issueDate) normalized.issueDate = normalized.issuedAt || normalized.issue_at;
   if (!normalized.dueDate) normalized.dueDate = normalized.due || normalized.due_at;
   if (!normalized.currency) normalized.currency = normalized.currencyCode || normalized.curr || 'USD';
+  if (!normalized.pdfUrl) normalized.pdfUrl = normalized.documentUrl || normalized.downloadUrl || normalized.pdf;
+  normalized.customer =
+    normalized.customer && typeof normalized.customer === 'object'
+      ? {
+          ...normalized.customer,
+          candidateId: String(normalized.customer?.candidateId || '').trim() || undefined,
+          candidateType: String(normalized.customer?.candidateType || '').trim() || undefined,
+        }
+      : undefined;
+  normalized.items = Array.isArray(normalized.items)
+    ? normalized.items.map((item: any) => ({
+        ...(item && typeof item === 'object' ? item : {}),
+        name: String(item?.name || item?.description || '').trim() || undefined,
+        description: String(item?.description || item?.name || '').trim() || undefined,
+        qty: Number(item?.qty ?? item?.quantity ?? 0) || 0,
+        quantity: Number(item?.quantity ?? item?.qty ?? 0) || 0,
+        unitPrice: Number(item?.unitPrice ?? item?.price ?? 0) || 0,
+        total: Number(item?.total ?? item?.lineTotal ?? 0) || 0,
+        lineTotal: Number(item?.lineTotal ?? item?.total ?? 0) || 0,
+      }))
+    : [];
   return normalized as Invoice;
 };
 
@@ -459,7 +670,18 @@ export const AuthService = {
     );
     return unwrap<{ token: string; user: any }>(res);
   },
-  async signup(payload: { name: string; email: string; password: string; phone?: string; userType?: string }) {
+  async signup(payload: {
+    name?: string;
+    email: string;
+    password: string;
+    phone?: string;
+    userType?: string;
+    companyName?: string;
+    companyAddress?: string;
+    contactPerson?: string;
+    companyLogo?: string;
+    [key: string]: any;
+  }) {
     const resolvedUserType = payload.userType || 'candidate';
     const body = {
       ...payload,
@@ -550,6 +772,198 @@ export const JobsService = {
   async get(jobId: string) {
     const res = await api.get(Endpoints.jobById(jobId));
     return unwrap<Job>(res);
+  },
+};
+
+export const OverviewService = {
+  async getAgentDashboard() {
+    const res = await api.get(Endpoints.agentOverview);
+    return unwrap<any>(res);
+  },
+  async getManagedCandidateDashboard(candidateId: string) {
+    const res = await api.get(Endpoints.managedCandidateOverview(candidateId));
+    return unwrap<any>(res);
+  },
+};
+
+export const AnalyticsService = {
+  async getDashboard() {
+    const res = await retryOnceAfterWarmup(() => api.get(Endpoints.analyticsDashboard));
+    return unwrap<AgentAnalyticsDashboard>(res);
+  },
+  async exportData(params?: { startDate?: string; endDate?: string; months?: number; format?: 'json' | 'csv' }) {
+    const format = params?.format || 'json';
+    const res = await retryOnceAfterWarmup(() =>
+      api.get(Endpoints.analyticsExport, {
+        params: {
+          startDate: params?.startDate,
+          endDate: params?.endDate,
+          months: params?.months || 6,
+          format,
+        },
+        responseType: format === 'csv' ? 'text' : 'json',
+        transformResponse: format === 'csv' ? [(data) => data] : undefined,
+      })
+    );
+    if (format === 'csv') return typeof res?.data === 'string' ? res.data : String(res?.data || '');
+    return unwrap<any>(res);
+  },
+};
+
+export const AgentProfileService = {
+  async getProfile() {
+    const res = await api.get(Endpoints.agentProfile);
+    return unwrap<any>(res);
+  },
+  async updateProfileMultipart(
+    agentId: string,
+    form: FormData,
+    onUploadProgress?: (progressEvent: any) => void
+  ) {
+    const request = () =>
+      api.put(Endpoints.agentUpdateProfile(agentId), form, {
+        headers: { Accept: 'application/json' },
+        onUploadProgress,
+        timeout: 60000,
+      });
+
+    try {
+      const res = await retryOnceAfterWarmup(request);
+      return unwrap<any>(res);
+    } catch (err: any) {
+      if (!isRetryableRequestError(err)) throw err;
+
+      const token = await getToken();
+      const absoluteUrl = `${String(api.defaults.baseURL || '').replace(/\/+$/, '')}${Endpoints.agentUpdateProfile(agentId)}`;
+      const response = await fetch(absoluteUrl, {
+        method: 'PUT',
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: form,
+      });
+
+      const text = await response.text();
+      let payload: any = text;
+      try {
+        payload = text ? JSON.parse(text) : {};
+      } catch {
+        // Keep string payload.
+      }
+
+      if (!response.ok) {
+        const fallbackErr: any = new Error(payload?.message || payload?.error || `HTTP ${response.status}`);
+        fallbackErr.response = { status: response.status, data: payload };
+        throw fallbackErr;
+      }
+
+      return payload?.data?.data ?? payload?.data?.items ?? payload?.data?.result ?? payload?.data ?? payload;
+    }
+  },
+};
+
+export const AgentCandidatesService = {
+  async list() {
+    const res = await api.get(Endpoints.agentCandidates);
+    const payload = unwrap<any>(res);
+    const items = extractManagedCandidates(payload);
+    return items.length ? items : (Array.isArray(payload) ? payload.map(normalizeManagedCandidate) : []);
+  },
+  async createMultipart(
+    form: FormData,
+    onUploadProgress?: (progressEvent: any) => void
+  ) {
+    const request = () =>
+      api.post(Endpoints.agentCandidates, form, {
+        headers: { Accept: 'application/json' },
+        onUploadProgress,
+        timeout: 60000,
+      });
+
+    try {
+      const res = await retryOnceAfterWarmup(request);
+      return unwrap<any>(res);
+    } catch (err: any) {
+      if (!isRetryableRequestError(err)) throw err;
+
+      const token = await getToken();
+      const absoluteUrl = `${String(api.defaults.baseURL || '').replace(/\/+$/, '')}${Endpoints.agentCandidates}`;
+      const response = await fetch(absoluteUrl, {
+        method: 'POST',
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: form,
+      });
+
+      const text = await response.text();
+      let payload: any = text;
+      try {
+        payload = text ? JSON.parse(text) : {};
+      } catch {
+        // Keep string payload.
+      }
+
+      if (!response.ok) {
+        const fallbackErr: any = new Error(payload?.message || payload?.error || `HTTP ${response.status}`);
+        fallbackErr.response = { status: response.status, data: payload };
+        throw fallbackErr;
+      }
+
+      return payload?.data?.data ?? payload?.data?.items ?? payload?.data?.result ?? payload?.data ?? payload;
+    }
+  },
+  async updateMultipart(
+    candidateId: string,
+    form: FormData,
+    onUploadProgress?: (progressEvent: any) => void
+  ) {
+    const request = () =>
+      api.put(Endpoints.agentCandidateById(candidateId), form, {
+        headers: { Accept: 'application/json' },
+        onUploadProgress,
+        timeout: 60000,
+      });
+
+    try {
+      const res = await retryOnceAfterWarmup(request);
+      return unwrap<any>(res);
+    } catch (err: any) {
+      if (!isRetryableRequestError(err)) throw err;
+
+      const token = await getToken();
+      const absoluteUrl = `${String(api.defaults.baseURL || '').replace(/\/+$/, '')}${Endpoints.agentCandidateById(candidateId)}`;
+      const response = await fetch(absoluteUrl, {
+        method: 'PUT',
+        headers: {
+          Accept: 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: form,
+      });
+
+      const text = await response.text();
+      let payload: any = text;
+      try {
+        payload = text ? JSON.parse(text) : {};
+      } catch {
+        // Keep string payload.
+      }
+
+      if (!response.ok) {
+        const fallbackErr: any = new Error(payload?.message || payload?.error || `HTTP ${response.status}`);
+        fallbackErr.response = { status: response.status, data: payload };
+        throw fallbackErr;
+      }
+
+      return payload?.data?.data ?? payload?.data?.items ?? payload?.data?.result ?? payload?.data ?? payload;
+    }
+  },
+  async remove(candidateId: string) {
+    const res = await api.delete(Endpoints.agentCandidateById(candidateId));
+    return unwrap<any>(res);
   },
 };
 
@@ -810,10 +1224,11 @@ export const DocumentsService = {
 };
 
 export const ApplicationsService = {
-  async apply(jobId: string, payload: { note?: string; cvUrl?: string }) {
+  async apply(jobId: string, payload: { note?: string; cvUrl?: string; managedCandidateId?: string; candidateId?: string }) {
     const note = payload?.note?.trim() || undefined;
     const cvUrl = payload?.cvUrl;
-    // Send common alias keys used by different backend implementations.
+    const candidateId = String(payload?.candidateId || payload?.managedCandidateId || '').trim() || undefined;
+    const managedCandidateId = String(payload?.managedCandidateId || payload?.candidateId || '').trim() || undefined;
     const requestBody = {
       jobId,
       note,
@@ -823,25 +1238,34 @@ export const ApplicationsService = {
       cv: cvUrl,
       resumeUrl: cvUrl,
       resume: cvUrl,
+      candidateId,
+      managedCandidateId,
     };
-    const res = await api.post(Endpoints.applyJob(jobId), requestBody);
+    const params = managedCandidateId || candidateId ? { candidateId, managedCandidateId } : undefined;
+    const res = await api.post(Endpoints.applyJob(jobId), requestBody, params ? { params } : undefined);
     return unwrap<any>(res);
   },
-  async my() {
-    const res = await api.get(Endpoints.myApplications);
+  async my(params?: { managedCandidateId?: string; candidateId?: string }) {
+    const candidateId = String(params?.candidateId || params?.managedCandidateId || '').trim();
+    const managedCandidateId = String(params?.managedCandidateId || params?.candidateId || '').trim();
+    const res = await api.get(
+      Endpoints.myApplications,
+      candidateId || managedCandidateId ? { params: { candidateId: candidateId || undefined, managedCandidateId: managedCandidateId || undefined } } : undefined
+    );
     return unwrap<Application[]>(res);
   },
 };
 
 export const InvoicesService = {
-  async list() {
+  async list(params?: { managedCandidateId?: string }) {
     const profile = await AuthService.getProfile().catch(() => null);
     const email = getProfileEmail(profile);
+    const managedCandidateId = String(params?.managedCandidateId || '').trim() || undefined;
 
     const requests = [
-      { endpoint: '/users/invoices', params: undefined as any },
-      { endpoint: '/users/invoices', params: email ? { email } : undefined },
-      { endpoint: Endpoints.myInvoices, params: undefined as any },
+      { endpoint: '/users/invoices', params: managedCandidateId ? { managedCandidateId } : undefined as any },
+      { endpoint: '/users/invoices', params: managedCandidateId ? { managedCandidateId, email } : email ? { email } : undefined as any },
+      { endpoint: Endpoints.myInvoices, params: managedCandidateId ? { managedCandidateId } : undefined as any },
     ];
 
     const attempts: string[] = [];
@@ -851,9 +1275,16 @@ export const InvoicesService = {
         const res = await api.get(req.endpoint, req.params ? { params: req.params } : undefined);
         const payload = unwrap<any>(res);
         const items = extractInvoices(payload).map(normalizeInvoice);
-        // /users/invoices should already be filtered by authenticated user on backend.
         const filtered =
-          req.endpoint === '/users/invoices' ? items : email ? items.filter((inv: any) => extractInvoiceEmail(inv) === email) : items;
+          req.endpoint === '/users/invoices'
+            ? managedCandidateId
+              ? items
+              : items
+            : managedCandidateId
+              ? items.filter((inv: any) => String(inv?.customer?.candidateId || '').trim() === managedCandidateId)
+              : email
+                ? items.filter((inv: any) => extractInvoiceEmail(inv) === email)
+                : items;
         return filtered.filter((x) => !!(x as any)?._id || !!(x as any)?.invoiceNumber);
       } catch (err: any) {
         const status = Number(err?.response?.status || 0);
@@ -870,10 +1301,11 @@ export const InvoicesService = {
     }
     return [];
   },
-  async get(invoiceId: string) {
+  async get(invoiceId: string, params?: { managedCandidateId?: string }) {
     const profile = await AuthService.getProfile().catch(() => null);
     const userId = profile?._id || profile?.id || profile?.user?._id || profile?.user?.id;
     const email = profile?.email || profile?.user?.email;
+    const managedCandidateId = String(params?.managedCandidateId || '').trim() || undefined;
     const endpoints = Array.from(
       new Set([
         `/users/invoices/${invoiceId}`,
@@ -889,8 +1321,9 @@ export const InvoicesService = {
     for (const endpoint of endpoints) {
       try {
         const params: any = {};
-        if (userId) params.userId = userId;
-        if (email) params.email = email;
+        if (managedCandidateId) params.managedCandidateId = managedCandidateId;
+        if (!managedCandidateId && userId) params.userId = userId;
+        if (!managedCandidateId && email) params.email = email;
         const res = await api.get(endpoint, Object.keys(params).length ? { params } : undefined);
         const payload = unwrap<any>(res);
         const invoice = extractInvoice(payload);
@@ -902,12 +1335,19 @@ export const InvoicesService = {
       }
     }
     if (lastErr) throw lastErr;
-    const list = await InvoicesService.list().catch(() => []);
+    const list = await InvoicesService.list(managedCandidateId ? { managedCandidateId } : undefined).catch(() => []);
     const matched = (Array.isArray(list) ? list : []).find((item: any) => String(item?._id || item?.id) === String(invoiceId));
     if (matched) return normalizeInvoice(matched);
     throw new Error('Invoice not found in response');
   },
-  async getPdfUrl(invoiceId: string) {
+  async getPdfUrl(invoiceId: string, params?: { managedCandidateId?: string }) {
+    const managedCandidateId = String(params?.managedCandidateId || '').trim() || undefined;
+    const withManagedCandidateQuery = (value: string) => {
+      const raw = String(value || '').trim();
+      if (!raw || !managedCandidateId) return raw;
+      const joiner = raw.includes('?') ? '&' : '?';
+      return `${raw}${joiner}managedCandidateId=${encodeURIComponent(managedCandidateId)}`;
+    };
     const endpoints = Array.from(
       new Set([
         `/users/invoices/${invoiceId}/pdf`,
@@ -927,6 +1367,7 @@ export const InvoicesService = {
     for (const endpoint of endpoints) {
       try {
         const res = await api.get(endpoint, {
+          ...(managedCandidateId ? { params: { managedCandidateId } } : {}),
           responseType: 'arraybuffer' as any,
           transformResponse: [(data) => data],
           timeout: 30000,
@@ -953,15 +1394,15 @@ export const InvoicesService = {
             // Keep raw string.
           }
           const resolvedUrl = extractUploadUrl(payload);
-          if (resolvedUrl) resolvedCandidates.push(resolvedUrl);
+          if (resolvedUrl) resolvedCandidates.push(withManagedCandidateQuery(resolvedUrl));
         }
 
-        resolvedCandidates.push(endpoint);
+        resolvedCandidates.push(withManagedCandidateQuery(endpoint));
       } catch (err: any) {
         const status = Number(err?.response?.status || 0);
         if (!status) throw err;
         lastErr = err;
-        resolvedCandidates.push(endpoint);
+        resolvedCandidates.push(withManagedCandidateQuery(endpoint));
       }
     }
 
@@ -974,14 +1415,18 @@ export const InvoicesService = {
     }
  
     const result = {
-      url: resolvedCandidates[0] || Endpoints.invoicePdf(invoiceId),
+      url: resolvedCandidates[0] || withManagedCandidateQuery(Endpoints.invoicePdf(invoiceId)),
       candidates: Array.from(new Set(resolvedCandidates)),
       directDownload: true,
     };
     if (lastErr && !result.candidates.length) throw lastErr;
     return result;
   },
-  async markPaid(invoiceId: string, payload?: { reference?: string; notes?: string; slipUrl?: string; file?: UploadableFile } | any) {
+  async markPaid(
+    invoiceId: string,
+    payload?: { reference?: string; notes?: string; slipUrl?: string; file?: UploadableFile; managedCandidateId?: string } | any
+  ) {
+    const managedCandidateId = String(payload?.managedCandidateId || '').trim() || undefined;
     const endpoints = Array.from(
       new Set([
         `/users/invoices/${invoiceId}/payment-proof`,
@@ -1029,6 +1474,7 @@ export const InvoicesService = {
         form.append(field, { uri: file.uri, name: file.name, type: file.type });
         try {
           const res = await api.post(endpoint, form, {
+            ...(managedCandidateId ? { params: { managedCandidateId } } : {}),
             headers: { Accept: 'application/json' },
             timeout: 60000,
           });
@@ -1047,7 +1493,7 @@ export const InvoicesService = {
         const multipartResult = await submitMultipart(endpoint);
         if (multipartResult) return multipartResult;
 
-        const res = await api.post(endpoint, body);
+        const res = await api.post(endpoint, body, managedCandidateId ? { params: { managedCandidateId } } : undefined);
         return unwrap<any>(res);
       } catch (err: any) {
         const status = Number(err?.response?.status || 0);
@@ -1058,7 +1504,7 @@ export const InvoicesService = {
     if (lastErr) {
       const status = Number(lastErr?.response?.status || 0);
       if (status === 404 || status === 401 || status === 403) {
-        const e = new Error('Payment proof endpoint is not available for client users yet.');
+        const e = new Error('Payment proof endpoint is unavailable for this invoice or access was denied.');
         (e as any).userMessage = e.message;
         throw e;
       }
@@ -1073,8 +1519,26 @@ export const InquiriesService = {
     const res = await api.get(Endpoints.myInquiries);
     return unwrap<Inquiry[]>(res);
   },
-  async create(jobId: string, payload: { category: string; message: string; subject?: string; attachmentUrl?: string }) {
-    const res = await api.post(Endpoints.createInquiry(jobId), payload);
+  async create(
+    jobId: string,
+    payload: {
+      email?: string;
+      message: string;
+      subject?: string;
+      category?: string;
+      attachmentUrl?: string;
+      managedCandidateId?: string;
+    }
+  ) {
+    const body = {
+      email: String(payload?.email || '').trim() || undefined,
+      subject: String(payload?.subject || '').trim() || undefined,
+      message: String(payload?.message || '').trim(),
+      category: String(payload?.category || '').trim() || undefined,
+      attachmentUrl: String(payload?.attachmentUrl || '').trim() || undefined,
+      managedCandidateId: String(payload?.managedCandidateId || '').trim() || undefined,
+    };
+    const res = await api.post(Endpoints.createInquiry(jobId), body);
     return unwrap<any>(res);
   },
   async getAll() {
@@ -1083,12 +1547,49 @@ export const InquiriesService = {
   },
 };
 
+export const WishlistService = {
+  async list(params?: { managedCandidateId?: string }) {
+    const managedCandidateId = String(params?.managedCandidateId || '').trim() || undefined;
+    const res = await api.get(Endpoints.wishlist, managedCandidateId ? { params: { managedCandidateId } } : undefined);
+    return extractWishlistJobs(unwrap<any>(res));
+  },
+  async stats(params?: { managedCandidateId?: string }) {
+    const managedCandidateId = String(params?.managedCandidateId || '').trim() || undefined;
+    const res = await api.get(Endpoints.wishlistStats, managedCandidateId ? { params: { managedCandidateId } } : undefined);
+    return normalizeWishlistStats(unwrap<any>(res));
+  },
+  async save(jobId: string, params?: { managedCandidateId?: string }) {
+    const managedCandidateId = String(params?.managedCandidateId || '').trim() || undefined;
+    const res = await api.post(Endpoints.wishlistAdd(jobId), {}, managedCandidateId ? { params: { managedCandidateId } } : undefined);
+    return unwrap<any>(res);
+  },
+  async remove(jobId: string, params?: { managedCandidateId?: string }) {
+    const managedCandidateId = String(params?.managedCandidateId || '').trim() || undefined;
+    const res = await api.delete(Endpoints.wishlistRemove(jobId), managedCandidateId ? { params: { managedCandidateId } } : undefined);
+    return unwrap<any>(res);
+  },
+  async check(jobId: string, params?: { managedCandidateId?: string }) {
+    const managedCandidateId = String(params?.managedCandidateId || '').trim() || undefined;
+    const res = await api.get(Endpoints.wishlistCheck(jobId), managedCandidateId ? { params: { managedCandidateId } } : undefined);
+    const payload = unwrap<any>(res);
+    return Boolean(payload?.isSaved ?? payload?.saved ?? payload === true);
+  },
+};
+
 export const MeetingsService = {
   async list(params?: { managedCandidateId?: string }) {
     const res = await api.get(Endpoints.meetings, params?.managedCandidateId ? { params } : undefined);
     const payload = unwrap<any>(res);
     const meetings = extractMeetings(payload);
-    return meetings.length ? meetings : (Array.isArray(payload) ? (payload as Meeting[]) : []);
+    const list = meetings.length ? meetings : (Array.isArray(payload) ? (payload as Meeting[]) : []);
+    return list.map(normalizeMeeting);
+  },
+  async get(meetingId: string, params?: { managedCandidateId?: string }) {
+    const res = await api.get(Endpoints.meetingById(meetingId), params?.managedCandidateId ? { params } : undefined);
+    const payload = unwrap<any>(res);
+    const meeting = extractMeeting(payload);
+    if (!meeting) throw new Error('Meeting not found in response');
+    return normalizeMeeting(meeting);
   },
 };
 
@@ -1245,10 +1746,53 @@ export const TasksService = {
   },
 };
 
+const normalizeChatAdmin = (value: any): ChatAdmin | null => {
+  if (!value || typeof value !== 'object') return null;
+  const merged = value?.user && typeof value.user === 'object' ? { ...value.user, ...value } : value;
+  const id = merged?._id || merged?.id || merged?.userId || merged?.adminId || merged?.user?._id || merged?.user?.id;
+  if (!id) return null;
+  return {
+    ...merged,
+    _id: String(id),
+    fullName: merged?.fullName || merged?.name || merged?.user?.fullName || merged?.user?.name,
+    name: merged?.name || merged?.fullName || merged?.user?.name || merged?.user?.fullName,
+    email: merged?.email || merged?.user?.email,
+    role: merged?.role || merged?.user?.role || 'Support admin',
+  } as ChatAdmin;
+};
+
+const extractChatAdmins = (payload: any) => {
+  if (Array.isArray(payload)) return payload.map(normalizeChatAdmin).filter(Boolean) as ChatAdmin[];
+  const arrayKeys = ['admins', 'items', 'rows', 'results', 'data'];
+  for (const key of arrayKeys) {
+    if (Array.isArray(payload?.[key])) return payload[key].map(normalizeChatAdmin).filter(Boolean) as ChatAdmin[];
+  }
+  const singleCandidates = [payload?.admin, payload?.assignedAdmin, payload?.assigned_admin, payload?.chatAdmin, payload?.contact, payload?.user, payload];
+  for (const candidate of singleCandidates) {
+    const normalized = normalizeChatAdmin(candidate);
+    if (normalized) return [normalized];
+  }
+  return [] as ChatAdmin[];
+};
+
 export const ChatService = {
   async listAdmins() {
     const res = await api.get(Endpoints.chatAdmins);
-    return unwrap<ChatAdmin[]>(res);
+    return extractChatAdmins(unwrap<any>(res));
+  },
+  async assignedAdmin() {
+    const endpoints = Array.from(new Set([Endpoints.chatMe, '/chats/me']));
+    for (const endpoint of endpoints) {
+      try {
+        const res = await api.get(endpoint);
+        const admins = extractChatAdmins(unwrap<any>(res));
+        if (admins.length) return admins[0];
+      } catch (err: any) {
+        const status = Number(err?.response?.status || 0);
+        if (!status) throw err;
+      }
+    }
+    return null;
   },
   async messagesWithAdmin(adminId: string) {
     const res = await api.get(Endpoints.chatMessagesWithAdmin(adminId));
@@ -1293,3 +1837,6 @@ export const ChatService = {
     throw new Error('Unable to send message');
   },
 };
+
+
+
